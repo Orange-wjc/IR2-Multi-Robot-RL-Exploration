@@ -67,14 +67,14 @@ This repository was tested using the following dependencies. Newer version of th
 If you intend to use our work in your research, please cite the following publication:
 ```
 @INPROCEEDINGS{derek2024IR2,
-  author={Derek, MS Tan and Ma, Yixiao and Liang, Jingsong and Cao, Yuhong and Sartoretti, Guillaume},
+  author={Tan, Derek Ming Siang and Ma, Yixiao and Liang, Jingsong and Cao, Yuhong and Sartoretti, Guillaume},
   booktitle={2024 IEEE International Conference on Intelligent Robots and Systems (IROS)}, 
   title={IR2: Implicit Rendezvous for Robotic Exploration Teams under Sparse Intermittent Connectivity}, 
   year={2024},
   volume={},
   number={},
   pages={},
-  doi={}}
+  doi={10.48550/arXiv.2409.04730}}
 ```
 
 
