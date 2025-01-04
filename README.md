@@ -2,7 +2,9 @@
 
 [IROS 2024] Public code and model for [IR2: Implicit Rendezvous for Robotic Exploration Teams under Sparse Intermittent Connectivity](https://arxiv.org/abs/2409.04730).
 
-We present IR2, a deep reinforcement learning approach to information sharing for multi-robot exporation under communication constraints. Leveraging attention-based neural networks and hierarchical graph formulation, robots can effectively balance the longer-term trade-offs between disconnecting for solo exploration and reconnecting for information sharing in large-scale, complex environments. 
+We present IR2, a deep reinforcement learning approach to information sharing for multi-robot exporation under communication constraints. Leveraging attention-based neural networks and hierarchical graph formulation, robots can effectively balance the longer-term trade-offs between disconnecting for solo exploration and reconnecting for information sharing. 
+
+We show that our model trained in this python simulation can generalize well to complex large-scale environments, such as Gazebo simulation and real world experiments. We hope that our work will be a useful learning-based benchmark for future research. 
 
 
 ## GIF Demo
