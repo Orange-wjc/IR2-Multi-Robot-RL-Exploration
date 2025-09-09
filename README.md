@@ -69,7 +69,7 @@ This repository was tested using the following dependencies. Newer version of th
 
 ## References
 If you intend to use our work in your research, please cite the following publication:
-```
+```bibtex
 @inproceedings{tan2024ir,
   title={Ir 2: Implicit rendezvous for robotic exploration teams under sparse intermittent connectivity},
   author={Tan, Derek Ming Siang and Ma, Yixiao and Liang, Jingsong and Chng, Yi Cheng and Cao, Yuhong and Sartoretti, Guillaume},
