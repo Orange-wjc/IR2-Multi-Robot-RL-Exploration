@@ -61,6 +61,10 @@ class Env():
         self.group_ids_list = None
         self.all_robot_map_belief_area_diff = [None for _ in range(self.n_agent)]
         self.all_robot_positions_missing_counts = [[ 0 for _ in range(self.n_agent)] for _ in range(self.n_agent)]    # (N,N,1)
+        self.comm_attempts = 0
+        self.comm_successes = 0
+        self.comm_dropped = 0
+        self.packet_loss_rng = np.random.default_rng(PACKET_LOSS_SEED + map_index)
 
         self.agents_comms_broken = []
         self.all_robot_belief, self.all_old_robot_belief, self.all_downsampled_belief = [], [], []
@@ -191,9 +195,11 @@ class Env():
                     dist = np.linalg.norm(all_robot_positions_gt[i] - all_robot_positions_gt[j])
 
                     # Proximity / Signal-Strength Based (NOTE: Assume connected = bidirectional communication)
-                    if (USE_SIGNAL_STRENGTH_NOT_PROXIMITY and self.ss_realistic_model.is_within_signal_strength(self.ground_truth, all_robot_positions_gt[i], all_robot_positions_gt[j])) \
-                        or (not USE_SIGNAL_STRENGTH_NOT_PROXIMITY and dist < self.max_comms_proximity):
+                    physically_connected = \
+                        (USE_SIGNAL_STRENGTH_NOT_PROXIMITY and self.ss_realistic_model.is_within_signal_strength(self.ground_truth, all_robot_positions_gt[i], all_robot_positions_gt[j])) \
+                        or (not USE_SIGNAL_STRENGTH_NOT_PROXIMITY and dist < self.max_comms_proximity)
 
+                    if i < j and physically_connected and self.packet_delivered():
                         self.graph_dict[vertex1].append(vertex2)
                         self.graph_dict[vertex2].append(vertex1)
 
@@ -391,6 +397,15 @@ class Env():
         if done:
             team_reward += 40
         return team_reward
+
+    def packet_delivered(self):
+        """Apply packet loss after the physical communication condition is satisfied."""
+        self.comm_attempts += 1
+        if ENABLE_PACKET_LOSS and self.packet_loss_rng.random() < PACKET_LOSS_PROB:
+            self.comm_dropped += 1
+            return False
+        self.comm_successes += 1
+        return True
 
     ########################
 

@@ -15,6 +15,9 @@ from test_multi_robot_worker import TestWorker
 from datetime import datetime
 
 def run_test():
+    fieldnames = ['eps', 'num_robots', 'max_dist', 'steps', 'explored', 'success', 'connectivity', \
+                  'packet_loss_enabled', 'packet_loss_prob', 'comm_attempts', 'comm_successes', \
+                  'comm_dropped', 'actual_packet_loss_rate']
 
     # Create .csv file for data collection
     current_datetime = datetime.now().strftime("%Y-%m-%d_%H%M%S")
@@ -26,7 +29,6 @@ def run_test():
         os.makedirs(log_path)
     if not os.path.exists(csv_file_path):
         with open(csv_file_path, mode='w') as csv_file:
-            fieldnames = ['eps', 'num_robots', 'max_dist', 'steps', 'explored', 'success', 'connectivity']
             writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
             writer.writeheader()
 
@@ -65,7 +67,6 @@ def run_test():
 
                     # Populate CSV file
                     with open(csv_file_path, mode='a') as csv_file:
-                        fieldnames = ['eps', 'num_robots', 'max_dist', 'steps', 'explored', 'success', 'connectivity']
                         writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
                         writer.writerow({'eps': info['episode_number'], \
                                         'num_robots': info['n_agent'], \
@@ -73,7 +74,13 @@ def run_test():
                                         'steps': metrics['travel_steps'], \
                                         'explored': metrics['explored_rate'], \
                                         'success': metrics['success_rate'], \
-                                        'connectivity': metrics['connectivity_rate'] })
+                                        'connectivity': metrics['connectivity_rate'], \
+                                        'packet_loss_enabled': ENABLE_PACKET_LOSS, \
+                                        'packet_loss_prob': PACKET_LOSS_PROB, \
+                                        'comm_attempts': metrics['comm_attempts'], \
+                                        'comm_successes': metrics['comm_successes'], \
+                                        'comm_dropped': metrics['comm_dropped'], \
+                                        'actual_packet_loss_rate': metrics['actual_packet_loss_rate'] })
                 else:
                     eps_skipped.append(curr_test)
             if curr_test < (NUM_TEST + len(eps_skipped)):

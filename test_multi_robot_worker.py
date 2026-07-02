@@ -122,6 +122,10 @@ class TestWorker:
         self.perf_metrics['success_rate'] = done
         self.perf_metrics['connectivity_rate'] = self.env.connectivity_rate
         self.perf_metrics['agents_connected_percentage'] = self.env.agents_connected_percentage
+        self.perf_metrics['comm_attempts'] = self.env.comm_attempts
+        self.perf_metrics['comm_successes'] = self.env.comm_successes
+        self.perf_metrics['comm_dropped'] = self.env.comm_dropped
+        self.perf_metrics['actual_packet_loss_rate'] = self.env.comm_dropped / self.env.comm_attempts if self.env.comm_attempts > 0 else 0.0
         self.perf_metrics['travel_steps'] = step + 1
 
         # save merged gif
