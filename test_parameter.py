@@ -38,18 +38,18 @@ else:
 
 
 # --- Test Specific --- #
-NUM_TEST = 3                      # Number of runs in this test
+NUM_TEST = 100                    # Number of runs in this test
 NUM_RUN = 1                         # How many times to run this set of tests
 SAVE_TRAJECTORY = False             # Do you want to save per-step metrics 
 SAVE_LENGTH = False                 # Do you want to save per-episode metrics 
 SAVE_GIFS = False                    # Do you want to save GIFs
-VIZ_GRAPH_EDGES=True                # Visualize graph edhes (NOTE: Will be very slow)
+VIZ_GRAPH_EDGES=False               # Visualize graph edhes (NOTE: Will be very slow)
 VIZ_GRAPH_EDGES_GROUND_TRUTH=False  # Visualize graph edhes (NOTE: Will be very slow)
 
 # --- GENERAL --- #
-USE_GPU = False
+USE_GPU = True
 NUM_GPU = 1
-NUM_META_AGENT = 1  # Number of parallel sims
+NUM_META_AGENT = 12  # Number of parallel sims
 FOLDER_NAME = 'mar_inference' 
 MODEL_DIR = f'model/stage2'
 GIFS_DIR = f'{FOLDER_NAME}/test_results/gifs'
@@ -121,4 +121,3 @@ GREEN='\033[1;32m'
 YELLOW='\033[1;93m'       
 NC_BOLD='\033[1m' # Bold, No Color 
 NC='\033[0m' # No Color 
-
