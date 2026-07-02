@@ -8,7 +8,7 @@ sys.modules['TRAINING'] = False           # False = Inference Testing
 
 # --- MAPS --- #
 # TODO: Set train set
-TEST_SET_NAME = "hybrid"        # "hybrid", "corridor", "complex", 
+TEST_SET_NAME = "corridor"        # "hybrid", "corridor", "complex", 
 TEST_SET_DIR = "DungeonMaps/test/" + TEST_SET_NAME
 
 # Easier maps
@@ -38,16 +38,16 @@ else:
 
 
 # --- Test Specific --- #
-NUM_TEST = 100                      # Number of runs in this test
+NUM_TEST = 3                      # Number of runs in this test
 NUM_RUN = 1                         # How many times to run this set of tests
 SAVE_TRAJECTORY = False             # Do you want to save per-step metrics 
 SAVE_LENGTH = False                 # Do you want to save per-episode metrics 
-SAVE_GIFS = True                    # Do you want to save GIFs
+SAVE_GIFS = False                    # Do you want to save GIFs
 VIZ_GRAPH_EDGES=True                # Visualize graph edhes (NOTE: Will be very slow)
 VIZ_GRAPH_EDGES_GROUND_TRUTH=False  # Visualize graph edhes (NOTE: Will be very slow)
 
 # --- GENERAL --- #
-USE_GPU = True
+USE_GPU = False
 NUM_GPU = 1
 NUM_META_AGENT = 1  # Number of parallel sims
 FOLDER_NAME = 'mar_inference' 
