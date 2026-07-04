@@ -172,6 +172,7 @@ class Graph_generator:
         ## Add node coords around own robot position (CUR_AGENT_KNN_RAD) and other robot positions (OTHER_AGENT_KNN_RAD)
         uniform_points_to_check = self.uniform_points[:, 0] + self.uniform_points[:, 1] * 1j
         robots_local_nodes = [set() for _ in range(len(robot_location_belief))]
+        robot_locations_with_known_map = []
         for id, position in enumerate(robot_location_belief):
             if position is not None:
                 knn_rad = CUR_AGENT_KNN_RAD if id == self.robot_id else OTHER_AGENT_KNN_RAD
@@ -186,6 +187,10 @@ class Graph_generator:
                 filtered_area_to_check = new_filtered_area[:, 0] + new_filtered_area[:, 1] * 1j
                 _, _, candidate_indices = np.intersect1d(filtered_area_to_check, uniform_points_to_check, return_indices=True)
                 candidate_node_coords = self.uniform_points[candidate_indices]
+                if len(candidate_node_coords) == 0:
+                    if id == self.robot_id:
+                        return False, None, None, None, None
+                    continue
 
                 # Retrieve all connected components in map to robot's position
                 padded_labeled_map = np.full_like(robot_belief, -99)         # Impossble for -99 to interfere with ndimage labelling
@@ -197,12 +202,13 @@ class Graph_generator:
                 connected_coords = np.argwhere(local_occupancy_map == local_occupancy_map[pose_idx])
                 connected_coords = candidate_node_coords[connected_coords[:,0]]
                 robots_local_nodes[id].update([tuple(coord) for coord in connected_coords])
+                robot_locations_with_known_map.append(position)
 
         # # Combine all pose filtered node idx
         robots_local_nodes_combined = [node for robot_local_nodes in robots_local_nodes for node in robot_local_nodes]
         robots_local_nodes_combined = np.array(list(set(robots_local_nodes_combined)))
 
-        robot_locations = [position for position in robot_location_belief if position is not None]
+        robot_locations = robot_locations_with_known_map
         old_node_coords = copy.deepcopy(self.node_coords)
         if len(self.global_graph_nodes) > 0:
             self.node_coords = np.concatenate((self.global_graph_nodes, robot_locations, robots_local_nodes_combined))  
@@ -845,4 +851,3 @@ class Graph_generator:
         uniform_points_to_check = self.uniform_points[:, 0] + self.uniform_points[:, 1] * 1j
         _, _, candidate_indices = np.intersect1d(free_area_to_check, uniform_points_to_check, return_indices=True)
         return self.uniform_points[candidate_indices]
-

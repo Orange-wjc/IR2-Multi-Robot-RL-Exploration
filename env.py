@@ -65,6 +65,14 @@ class Env():
         self.comm_successes = 0
         self.comm_dropped = 0
         self.packet_loss_rng = np.random.default_rng(PACKET_LOSS_SEED + map_index)
+        self.message_loss_rng = np.random.default_rng(MESSAGE_LOSS_SEED + map_index)
+        self.message_attempts = {"map": 0, "pose": 0, "graph": 0}
+        self.message_successes = {"map": 0, "pose": 0, "graph": 0}
+        self.message_dropped = {"map": 0, "pose": 0, "graph": 0}
+        self.pose_staleness_sum = 0.0
+        self.pose_staleness_count = 0
+        self.pose_staleness_max = 0.0
+        self.last_skip_info = None
 
         self.agents_comms_broken = []
         self.all_robot_belief, self.all_old_robot_belief, self.all_downsampled_belief = [], [], []
@@ -242,8 +250,20 @@ class Env():
             if robot_id in group_ids:
 
                 ### [Local Update] Merging map beliefs for agents that are connected ###
-                merged_belief = self.merge_beliefs( [self.all_robot_belief[id][id] for id in group_ids] )
+                map_delivery = self.build_message_delivery(group_ids, "map")
+                if self.any_message_loss_applies():
+                    map_belief_snapshot = [[self.all_robot_belief[i][j] for j in range(self.n_agent)] for i in range(self.n_agent)]
+                    map_step_snapshot = [row[:] for row in self.all_robot_belief_step_updated]
+                else:
+                    map_belief_snapshot = self.all_robot_belief
+                    map_step_snapshot = self.all_robot_belief_step_updated
                 for own_id in group_ids:
+                    beliefs_to_merge = [map_belief_snapshot[own_id][own_id]]
+                    for other_id_in_group in group_ids:
+                        if own_id != other_id_in_group and map_delivery[own_id][other_id_in_group]:
+                            beliefs_to_merge.append(map_belief_snapshot[other_id_in_group][other_id_in_group])
+
+                    merged_belief = self.merge_beliefs(beliefs_to_merge)
                     self.all_robot_belief[own_id][own_id] = merged_belief
                     self.all_robot_belief_step_updated[own_id][own_id] = sim_step
                     self.all_downsampled_belief[own_id] = block_reduce(self.all_robot_belief[own_id][own_id].copy(), block_size=(self.resolution, self.resolution), func=np.min)
@@ -251,34 +271,43 @@ class Env():
                     for other_id_in_group in group_ids:
 
                         if own_id != other_id_in_group:
-                            self.all_robot_belief[own_id][other_id_in_group] = merged_belief
-                            self.all_robot_belief_step_updated[own_id][other_id_in_group] = sim_step
+                            if map_delivery[own_id][other_id_in_group]:
+                                self.all_robot_belief[own_id][other_id_in_group] = merged_belief
+                                self.all_robot_belief_step_updated[own_id][other_id_in_group] = sim_step
                 
                         ### [Global Update] Merging map beliefs of other agents' beliefs of other agents ###
                         for other_id_out_group in range(self.n_agent):
                             if other_id_out_group not in group_ids:
 
                                 own_step_updated = self.all_robot_belief_step_updated[own_id][other_id_out_group]
-                                other_step_updated = self.all_robot_belief_step_updated[other_id_in_group][other_id_out_group]
+                                other_step_updated = map_step_snapshot[other_id_in_group][other_id_out_group]
 
                                 # # Cond 1: Own belief is None, but other's belief is not None
                                 # # Cond 2: Own belief is more outdated and other's belief not None
-                                if own_step_updated < other_step_updated and \
-                                    self.all_robot_belief[other_id_in_group][other_id_out_group] is not None:
+                                if (own_id == other_id_in_group or map_delivery[own_id][other_id_in_group]) and \
+                                    own_step_updated < other_step_updated and \
+                                    map_belief_snapshot[other_id_in_group][other_id_out_group] is not None:
 
                                     self.all_robot_belief[own_id][other_id_out_group] = \
-                                            self.all_robot_belief[other_id_in_group][other_id_out_group]
+                                            map_belief_snapshot[other_id_in_group][other_id_out_group]
                                     self.all_robot_belief_step_updated[own_id][other_id_out_group] = \
-                                            self.all_robot_belief_step_updated[other_id_in_group][other_id_out_group]
+                                            map_step_snapshot[other_id_in_group][other_id_out_group]
 
 
                 ### Merging position beliefs for agents that are connected, and agents' belief of other agents (if not as outdated) ###
+                pose_delivery = self.build_message_delivery(group_ids, "pose")
+                if self.any_message_loss_applies():
+                    position_belief_snapshot = [[self.all_robot_positions_belief[i][j] for j in range(self.n_agent)] for i in range(self.n_agent)]
+                    position_step_snapshot = [row[:] for row in self.all_robot_positions_step_updated]
+                else:
+                    position_belief_snapshot = self.all_robot_positions_belief
+                    position_step_snapshot = self.all_robot_positions_step_updated
                 for own_id in group_ids:
                     
                     for other_id_in_group in group_ids:
                         
                         # [Local Update] Updating positions belief with agents in direct connectivity
-                        if own_id != other_id_in_group:
+                        if own_id != other_id_in_group and pose_delivery[own_id][other_id_in_group]:
                             self.all_robot_positions_belief[own_id][other_id_in_group] = all_robot_positions_gt[other_id_in_group]
                             self.all_robot_positions_step_updated[own_id][other_id_in_group] = sim_step
 
@@ -287,26 +316,34 @@ class Env():
                             if other_id_out_group not in group_ids:
                                 
                                 own_step_updated = self.all_robot_positions_step_updated[own_id][other_id_out_group]
-                                other_step_updated = self.all_robot_positions_step_updated[other_id_in_group][other_id_out_group]
+                                other_step_updated = position_step_snapshot[other_id_in_group][other_id_out_group]
                                 
                                 # # Cond 1: Own belief is None, but other's belief is not None
                                 # # Cond 2: Own belief is more outdated and other's belief not None
-                                if own_step_updated < other_step_updated and \
-                                    self.all_robot_positions_belief[other_id_in_group][other_id_out_group] is not None:
+                                if (own_id == other_id_in_group or pose_delivery[own_id][other_id_in_group]) and \
+                                    own_step_updated < other_step_updated and \
+                                    position_belief_snapshot[other_id_in_group][other_id_out_group] is not None:
 
                                     self.all_robot_positions_belief[own_id][other_id_out_group] = \
-                                            self.all_robot_positions_belief[other_id_in_group][other_id_out_group]
+                                            position_belief_snapshot[other_id_in_group][other_id_out_group]
                                     self.all_robot_positions_step_updated[own_id][other_id_out_group] = \
-                                            self.all_robot_positions_step_updated[other_id_in_group][other_id_out_group]
+                                            position_step_snapshot[other_id_in_group][other_id_out_group]
 
                 ### Merge route history belief of all agents 
+                graph_delivery = self.build_message_delivery(group_ids, "graph")
+                if self.any_message_loss_applies():
+                    graph_belief_snapshot = [[self.all_robot_global_graph_belief[i][j] for j in range(self.n_agent)] for i in range(self.n_agent)]
+                    graph_step_snapshot = [row[:] for row in self.all_robot_global_graph_step_updated]
+                else:
+                    graph_belief_snapshot = self.all_robot_global_graph_belief
+                    graph_step_snapshot = self.all_robot_global_graph_step_updated
                 for own_id in group_ids:
                     
                     for other_id_in_group in group_ids:
                         
                         # [Local Update] Updating positions belief with agents in direct connectivity
-                        if own_id != other_id_in_group:
-                            self.all_robot_global_graph_belief[own_id][other_id_in_group] = copy.deepcopy(self.all_robot_global_graph_belief[other_id_in_group][other_id_in_group])
+                        if own_id != other_id_in_group and graph_delivery[own_id][other_id_in_group]:
+                            self.all_robot_global_graph_belief[own_id][other_id_in_group] = copy.deepcopy(graph_belief_snapshot[other_id_in_group][other_id_in_group])
                             self.all_robot_global_graph_step_updated[own_id][other_id_in_group] = copy.deepcopy(sim_step)
 
                         # [Global Update] Merging in belief of other agents' belief of other agents
@@ -314,17 +351,18 @@ class Env():
                             if other_id_out_group not in group_ids:
                                 
                                 own_step_updated = self.all_robot_global_graph_step_updated[own_id][other_id_out_group]
-                                other_step_updated = self.all_robot_global_graph_step_updated[other_id_in_group][other_id_out_group]
+                                other_step_updated = graph_step_snapshot[other_id_in_group][other_id_out_group]
                                 
                                 # # Cond 1: Own belief is None, but other's belief is not None
                                 # # Cond 2: Own belief is more outdated and other's belief not None
-                                if own_step_updated < other_step_updated and \
-                                    self.all_robot_global_graph_belief[other_id_in_group][other_id_out_group] is not None:
+                                if (own_id == other_id_in_group or graph_delivery[own_id][other_id_in_group]) and \
+                                    own_step_updated < other_step_updated and \
+                                    graph_belief_snapshot[other_id_in_group][other_id_out_group] is not None:
 
                                     self.all_robot_global_graph_belief[own_id][other_id_out_group] = \
-                                            copy.deepcopy(self.all_robot_global_graph_belief[other_id_in_group][other_id_out_group])
+                                            copy.deepcopy(graph_belief_snapshot[other_id_in_group][other_id_out_group])
                                     self.all_robot_global_graph_step_updated[own_id][other_id_out_group] = \
-                                            copy.deepcopy(self.all_robot_global_graph_step_updated[other_id_in_group][other_id_out_group])
+                                            copy.deepcopy(graph_step_snapshot[other_id_in_group][other_id_out_group])
 
 
                     ### Update of essential params after map update ### 
@@ -386,8 +424,10 @@ class Env():
         return success
     
 
-    def update_env_and_get_team_rewards(self):
+    def update_env_and_get_team_rewards(self, sim_step=None):
         """ Evaluate team performance and rewards """
+        if sim_step is not None:
+            self.record_pose_staleness(sim_step)
         self.agents_connected_percentage = 1 - (len(self.agents_comms_broken) / self.n_agent)
         self.connectivity_rate = (len(self.agents_comms_broken) == 0)
         self.explored_rate = self.evaluate_team_exploration_rate()
@@ -406,6 +446,48 @@ class Env():
             return False
         self.comm_successes += 1
         return True
+
+    def message_loss_applies(self, message_type):
+        mode = MESSAGE_LOSS_MODE.lower()
+        return ENABLE_MESSAGE_LOSS and mode in (message_type, "all") and MESSAGE_LOSS_PROB > 0
+
+    def any_message_loss_applies(self):
+        mode = MESSAGE_LOSS_MODE.lower()
+        return ENABLE_MESSAGE_LOSS and mode in ("map", "pose", "graph", "all") and MESSAGE_LOSS_PROB > 0
+
+    def message_delivered(self, message_type):
+        """Apply message-level dropout after the communication group is connected."""
+        if not self.message_loss_applies(message_type):
+            return True
+
+        self.message_attempts[message_type] += 1
+        if self.message_loss_rng.random() < MESSAGE_LOSS_PROB:
+            self.message_dropped[message_type] += 1
+            return False
+        self.message_successes[message_type] += 1
+        return True
+
+    def build_message_delivery(self, group_ids, message_type):
+        delivery = {receiver_id: {} for receiver_id in group_ids}
+        for receiver_id in group_ids:
+            for sender_id in group_ids:
+                delivery[receiver_id][sender_id] = (
+                    sender_id == receiver_id or self.message_delivered(message_type)
+                )
+        return delivery
+
+    def record_pose_staleness(self, sim_step):
+        staleness_values = []
+        for own_id in range(self.n_agent):
+            for other_id in range(self.n_agent):
+                if own_id != other_id and self.all_robot_positions_belief[own_id][other_id] is not None:
+                    staleness_values.append(max(0, sim_step - self.all_robot_positions_step_updated[own_id][other_id]))
+
+        if not staleness_values:
+            return
+        self.pose_staleness_sum += float(np.mean(staleness_values))
+        self.pose_staleness_count += 1
+        self.pose_staleness_max = max(self.pose_staleness_max, float(np.max(staleness_values)))
 
     ########################
 
@@ -474,7 +556,7 @@ class Env():
                 self.visualize_flock_recurse_connectivity_graph(child_node, iter)
 
 
-    def generate_rendezvous_utility_layer(self, robot_id, eps):
+    def generate_rendezvous_utility_layer(self, robot_id, eps, step=None):
         """ Generate map-delta utility layer for robot observation """
 
         rendezvous_utility_inputs = np.zeros((len(self.all_node_coords[robot_id]), 1))
@@ -571,7 +653,22 @@ class Env():
 
                             elif route is None:
                                 success = False
-                                print(RED, "Astar path is None, for map-delta utility generation! Skipping Episode{}! ".format(eps), NC)
+                                self.last_skip_info = {
+                                    'skip_stage': 'rendezvous_utility',
+                                    'skip_reason': 'rendezvous_astar_path_none',
+                                    'eps': eps,
+                                    'step': step,
+                                    'robot_id': robot_id,
+                                    'target_robot_id': other_id,
+                                    'current_position': current.tolist() if hasattr(current, 'tolist') else current,
+                                    'destination_position': destination.tolist() if hasattr(destination, 'tolist') else destination,
+                                    'map_delta': float(map_delta_unnormalized[other_id]),
+                                    'message_loss_enabled': ENABLE_MESSAGE_LOSS,
+                                    'message_loss_mode': MESSAGE_LOSS_MODE,
+                                    'message_loss_prob': MESSAGE_LOSS_PROB,
+                                    'packet_loss_enabled': ENABLE_PACKET_LOSS,
+                                    'packet_loss_prob': PACKET_LOSS_PROB,
+                                }
                                 return map_delta_unnormalized, rendezvous_utility_inputs, success
 
             # Set neighboring coords around robot to be 0

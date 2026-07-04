@@ -39,6 +39,40 @@ class TestWorker:
 
         self.perf_metrics = dict()
         self.max_node_coords = 0
+        self.skip_info = dict()
+
+    def format_skip_value(self, value):
+        if value is None:
+            return ''
+        if hasattr(value, 'tolist'):
+            value = value.tolist()
+        return str(value)
+
+    def record_skip_info(self, eps, robot_id, step, skip_stage, skip_reason, extra_info=None):
+        skip_info = dict(extra_info) if extra_info else dict()
+        skip_info.setdefault('eps', eps)
+        skip_info.setdefault('map_index', self.global_step)
+        skip_info.setdefault('map_name', self.env.file_path)
+        skip_info.setdefault('meta_agent_id', self.metaAgentID)
+        skip_info.setdefault('num_robots', self.n_agent)
+        skip_info.setdefault('step', step)
+        skip_info.setdefault('robot_id', robot_id)
+        skip_info.setdefault('target_robot_id', '')
+        skip_info.setdefault('skip_stage', skip_stage)
+        skip_info.setdefault('skip_reason', skip_reason)
+        skip_info.setdefault('current_position', self.robot_list[robot_id].robot_position)
+        skip_info.setdefault('destination_position', '')
+        skip_info['current_position'] = self.format_skip_value(skip_info['current_position'])
+        skip_info['destination_position'] = self.format_skip_value(skip_info['destination_position'])
+        self.skip_info = skip_info
+
+    def finalize_skip_metrics(self):
+        self.skip_info.setdefault('comm_attempts', self.env.comm_attempts)
+        self.skip_info.setdefault('comm_dropped', self.env.comm_dropped)
+        for message_type in ("map", "pose", "graph"):
+            self.skip_info.setdefault(f'{message_type}_msg_attempts', self.env.message_attempts[message_type])
+            self.skip_info.setdefault(f'{message_type}_msg_dropped', self.env.message_dropped[message_type])
+        self.perf_metrics['skip_info'] = self.skip_info
 
     def run_episode(self, curr_episode):
         """ Run simulation episode for multiple robots """
@@ -54,7 +88,10 @@ class TestWorker:
 
                 ### Update each agent's graphs & utility (if map updated from map_merge) ###
                 success = self.env.update_graph(robot_id, self.env.find_frontier(self.env.all_downsampled_belief[robot_id]), eps=self.global_step, step=step)
-                if not success: astar_unsuccessful = True; break
+                if not success:
+                    self.record_skip_info(curr_episode, robot_id, step, 'update_graph', 'update_graph_failed')
+                    astar_unsuccessful = True
+                    break
                 
                 deciding_robot.observations, success = self.get_observations(deciding_robot.robot_position, robot_id, curr_episode, step, plot=True)
                 if not success: astar_unsuccessful = True; break
@@ -75,7 +112,10 @@ class TestWorker:
 
                 ### Execute step in env
                 success, reward, done = self.env.single_robot_step(robot_id, self.all_robot_positions, self.global_step, step, dist_travelled)
-                if not success: astar_unsuccessful = True; break
+                if not success:
+                    self.record_skip_info(curr_episode, robot_id, step, 'single_robot_step', 'single_robot_step_failed')
+                    astar_unsuccessful = True
+                    break
                 reward_list.append(reward)
 
                 ### Update observations + rewards from action ###
@@ -95,7 +135,7 @@ class TestWorker:
             if astar_unsuccessful:
                 break
 
-            team_reward = self.env.update_env_and_get_team_rewards()
+            team_reward = self.env.update_env_and_get_team_rewards(step)
             for i in range(len(reward_list)):
                 reward_list[i] += team_reward
                 self.robot_list[i].save_reward_done(reward_list[i], done)
@@ -115,6 +155,7 @@ class TestWorker:
                 break
 
         if astar_unsuccessful:
+            self.finalize_skip_metrics()
             return False
 
         self.perf_metrics['travel_dist'] = max(travel_dist_list)
@@ -126,6 +167,15 @@ class TestWorker:
         self.perf_metrics['comm_successes'] = self.env.comm_successes
         self.perf_metrics['comm_dropped'] = self.env.comm_dropped
         self.perf_metrics['actual_packet_loss_rate'] = self.env.comm_dropped / self.env.comm_attempts if self.env.comm_attempts > 0 else 0.0
+        for message_type in ("map", "pose", "graph"):
+            attempts = self.env.message_attempts[message_type]
+            dropped = self.env.message_dropped[message_type]
+            self.perf_metrics[f'{message_type}_msg_attempts'] = attempts
+            self.perf_metrics[f'{message_type}_msg_successes'] = self.env.message_successes[message_type]
+            self.perf_metrics[f'{message_type}_msg_dropped'] = dropped
+            self.perf_metrics[f'actual_{message_type}_msg_loss_rate'] = dropped / attempts if attempts > 0 else 0.0
+        self.perf_metrics['pose_staleness_mean'] = self.env.pose_staleness_sum / self.env.pose_staleness_count if self.env.pose_staleness_count > 0 else 0.0
+        self.perf_metrics['pose_staleness_max'] = self.env.pose_staleness_max
         self.perf_metrics['travel_steps'] = step + 1
 
         # save merged gif
@@ -148,8 +198,16 @@ class TestWorker:
         """ Get robot's observation of environment (neural network inputs) """
 
         # Rendezvous Utility Layer (Gen first because it involves A* path planning, and potentially regen graph if no path found)
-        map_delta_unnormalized, rendezvous_utility_inputs, success = self.env.generate_rendezvous_utility_layer(robot_id, eps)
+        map_delta_unnormalized, rendezvous_utility_inputs, success = self.env.generate_rendezvous_utility_layer(robot_id, eps, step)
         if not success:
+            self.record_skip_info(
+                eps,
+                robot_id,
+                step,
+                'get_observations',
+                'rendezvous_utility_failed',
+                extra_info=self.env.last_skip_info,
+            )
             return [], False
 
         self.env.all_robot_map_belief_area_diff[robot_id] = map_delta_unnormalized
@@ -189,6 +247,7 @@ class TestWorker:
         # print("node_coords.shape[0]: ", node_coords.shape[0])
         if node_coords.shape[0] >= self.node_padding_size:
             print(RED, "[Eps {} | Robot {} | Step {}] node_coords.shape[0] >= self.node_padding_size ({} >= {}). Skipping eps.".format(eps, robot_id+1, step, node_coords.shape[0], self.node_padding_size))
+            self.record_skip_info(eps, robot_id, step, 'get_observations', 'node_padding_overflow')
             return [], False
         
         node_padding_mask = None
@@ -206,6 +265,7 @@ class TestWorker:
 
         if current_index >= len(edge_inputs):
             print(RED, "[Eps {} | Robot {} | Step {}] current_index > len(edge_inputs) ({} >= {}). Skipping eps.".format(eps, robot_id+1, step, current_index, len(edge_inputs)))
+            self.record_skip_info(eps, robot_id, step, 'get_observations', 'current_index_out_of_edge_inputs')
             return [], False
         edge = edge_inputs[current_index]
 
@@ -220,6 +280,7 @@ class TestWorker:
         one = torch.ones_like(edge_padding_mask, dtype=torch.int64).to(self.device)
         if not (edge_inputs.shape == one.shape == edge_padding_mask.shape):
             print(RED, "[Eps {} | Robot {} | Step {}] Not (edge_inputs.shape = one.shape == edge_padding_mask.shape) not (edge_inputs.shape == one.shape == edge_padding_mask.shape). Skipping eps.".format(eps, robot_id+1, step))
+            self.record_skip_info(eps, robot_id, step, 'get_observations', 'edge_input_shape_mismatch')
             return [], False
 
         edge_padding_mask = torch.where(edge_inputs == 0, one, edge_padding_mask)
