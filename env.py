@@ -69,6 +69,22 @@ class Env():
         self.message_attempts = {"map": 0, "pose": 0, "graph": 0}
         self.message_successes = {"map": 0, "pose": 0, "graph": 0}
         self.message_dropped = {"map": 0, "pose": 0, "graph": 0}
+        self.message_priority = {"map": 0, "graph": 1, "pose": 2}
+        self.pending_retransmissions = [
+            [
+                {"map": None, "pose": None, "graph": None}
+                for _ in range(self.n_agent)
+            ]
+            for _ in range(self.n_agent)
+        ]
+        self.retransmission_budget_used = {}
+        self.retransmission_attempts = {"map": 0, "pose": 0, "graph": 0}
+        self.retransmission_successes = {"map": 0, "pose": 0, "graph": 0}
+        self.retransmission_dropped = {"map": 0, "pose": 0, "graph": 0}
+        self.retransmission_expired = {"map": 0, "pose": 0, "graph": 0}
+        self.retransmission_delay_sum = 0.0
+        self.retransmission_delay_count = 0
+        self.retransmission_delay_max = 0.0
         self.pose_staleness_sum = 0.0
         self.pose_staleness_count = 0
         self.pose_staleness_max = 0.0
@@ -245,12 +261,14 @@ class Env():
         # Belief Propogation (hopping through graph)
         ################################################
 
+        self.retransmission_budget_used = {}
+
         ### Map & Pose Belief Merger ###
         for group_ids in self.group_ids_list:
             if robot_id in group_ids:
 
                 ### [Local Update] Merging map beliefs for agents that are connected ###
-                map_delivery = self.build_message_delivery(group_ids, "map")
+                map_delivery = self.build_message_delivery(group_ids, "map", sim_step)
                 if self.any_message_loss_applies():
                     map_belief_snapshot = [[self.all_robot_belief[i][j] for j in range(self.n_agent)] for i in range(self.n_agent)]
                     map_step_snapshot = [row[:] for row in self.all_robot_belief_step_updated]
@@ -295,7 +313,7 @@ class Env():
 
 
                 ### Merging position beliefs for agents that are connected, and agents' belief of other agents (if not as outdated) ###
-                pose_delivery = self.build_message_delivery(group_ids, "pose")
+                pose_delivery = self.build_message_delivery(group_ids, "pose", sim_step)
                 if self.any_message_loss_applies():
                     position_belief_snapshot = [[self.all_robot_positions_belief[i][j] for j in range(self.n_agent)] for i in range(self.n_agent)]
                     position_step_snapshot = [row[:] for row in self.all_robot_positions_step_updated]
@@ -330,7 +348,7 @@ class Env():
                                             position_step_snapshot[other_id_in_group][other_id_out_group]
 
                 ### Merge route history belief of all agents 
-                graph_delivery = self.build_message_delivery(group_ids, "graph")
+                graph_delivery = self.build_message_delivery(group_ids, "graph", sim_step)
                 if self.any_message_loss_applies():
                     graph_belief_snapshot = [[self.all_robot_global_graph_belief[i][j] for j in range(self.n_agent)] for i in range(self.n_agent)]
                     graph_step_snapshot = [row[:] for row in self.all_robot_global_graph_step_updated]
@@ -449,11 +467,26 @@ class Env():
 
     def message_loss_applies(self, message_type):
         mode = MESSAGE_LOSS_MODE.lower()
-        return ENABLE_MESSAGE_LOSS and mode in (message_type, "all") and MESSAGE_LOSS_PROB > 0
+        return ENABLE_MESSAGE_LOSS and mode in (message_type, "all", "random") and MESSAGE_LOSS_PROB > 0
 
     def any_message_loss_applies(self):
         mode = MESSAGE_LOSS_MODE.lower()
-        return ENABLE_MESSAGE_LOSS and mode in ("map", "pose", "graph", "all") and MESSAGE_LOSS_PROB > 0
+        return ENABLE_MESSAGE_LOSS and mode in ("map", "pose", "graph", "all", "random") and MESSAGE_LOSS_PROB > 0
+
+    def get_message_loss_prob(self, message_type):
+        mode = MESSAGE_LOSS_MODE.lower()
+        if mode != "random":
+            return MESSAGE_LOSS_PROB
+
+        if message_type == "map":
+            scale = RANDOM_MAP_LOSS_SCALE
+        elif message_type == "graph":
+            scale = RANDOM_GRAPH_LOSS_SCALE
+        elif message_type == "pose":
+            scale = RANDOM_POSE_LOSS_SCALE
+        else:
+            scale = 1.0
+        return min(MESSAGE_LOSS_PROB * scale, RANDOM_MAX_LOSS_PROB)
 
     def message_delivered(self, message_type):
         """Apply message-level dropout after the communication group is connected."""
@@ -461,19 +494,119 @@ class Env():
             return True
 
         self.message_attempts[message_type] += 1
-        if self.message_loss_rng.random() < MESSAGE_LOSS_PROB:
+        if self.message_loss_rng.random() < self.get_message_loss_prob(message_type):
             self.message_dropped[message_type] += 1
             return False
         self.message_successes[message_type] += 1
         return True
 
-    def build_message_delivery(self, group_ids, message_type):
+    def retransmission_enabled(self):
+        return ENABLE_PRIORITY_RETRANSMISSION and self.any_message_loss_applies()
+
+    def pending_message_count(self):
+        count = 0
+        for receiver_id in range(self.n_agent):
+            for sender_id in range(self.n_agent):
+                for message_type in ("map", "pose", "graph"):
+                    if self.pending_retransmissions[receiver_id][sender_id][message_type] is not None:
+                        count += 1
+        return count
+
+    def clear_pending_retransmission(self, receiver_id, sender_id, message_type):
+        self.pending_retransmissions[receiver_id][sender_id][message_type] = None
+
+    def add_pending_retransmission(self, receiver_id, sender_id, message_type, sim_step):
+        if not self.retransmission_enabled() or receiver_id == sender_id:
+            return
+        pending = self.pending_retransmissions[receiver_id][sender_id][message_type]
+        if pending is None:
+            self.pending_retransmissions[receiver_id][sender_id][message_type] = {
+                "created_step": sim_step,
+                "retry_count": 0,
+            }
+
+    def expire_pending_retransmission(self, receiver_id, sender_id, message_type, sim_step):
+        pending = self.pending_retransmissions[receiver_id][sender_id][message_type]
+        if pending is None:
+            return False
+        if sim_step - pending["created_step"] <= MAX_MESSAGE_AGE and pending["retry_count"] < MAX_RETRY_COUNT:
+            return False
+        self.retransmission_expired[message_type] += 1
+        self.clear_pending_retransmission(receiver_id, sender_id, message_type)
+        return True
+
+    def has_higher_priority_pending(self, receiver_id, sender_id, message_type, sim_step):
+        if RETRANSMISSION_POLICY.lower() != "priority":
+            return False
+        current_priority = self.message_priority[message_type]
+        for other_type, other_priority in self.message_priority.items():
+            if other_priority >= current_priority:
+                continue
+            if self.expire_pending_retransmission(receiver_id, sender_id, other_type, sim_step):
+                continue
+            if self.pending_retransmissions[receiver_id][sender_id][other_type] is not None:
+                return True
+        return False
+
+    def can_attempt_retransmission(self, receiver_id, sender_id):
+        budget = max(0, RETRANSMISSION_BUDGET_PER_PAIR)
+        if budget == 0:
+            return False
+        key = (receiver_id, sender_id)
+        return self.retransmission_budget_used.get(key, 0) < budget
+
+    def mark_retransmission_budget_used(self, receiver_id, sender_id):
+        key = (receiver_id, sender_id)
+        self.retransmission_budget_used[key] = self.retransmission_budget_used.get(key, 0) + 1
+
+    def try_pending_retransmission(self, receiver_id, sender_id, message_type, sim_step):
+        if not self.retransmission_enabled() or receiver_id == sender_id:
+            return False
+        if self.expire_pending_retransmission(receiver_id, sender_id, message_type, sim_step):
+            return False
+        pending = self.pending_retransmissions[receiver_id][sender_id][message_type]
+        if pending is None:
+            return False
+        if self.has_higher_priority_pending(receiver_id, sender_id, message_type, sim_step):
+            return False
+        if not self.can_attempt_retransmission(receiver_id, sender_id):
+            return False
+
+        self.mark_retransmission_budget_used(receiver_id, sender_id)
+        self.retransmission_attempts[message_type] += 1
+        if self.message_loss_rng.random() < self.get_message_loss_prob(message_type):
+            self.retransmission_dropped[message_type] += 1
+            pending["retry_count"] += 1
+            self.expire_pending_retransmission(receiver_id, sender_id, message_type, sim_step)
+            return False
+
+        delay = max(0, sim_step - pending["created_step"])
+        self.retransmission_successes[message_type] += 1
+        self.retransmission_delay_sum += delay
+        self.retransmission_delay_count += 1
+        self.retransmission_delay_max = max(self.retransmission_delay_max, delay)
+        self.clear_pending_retransmission(receiver_id, sender_id, message_type)
+        return True
+
+    def build_message_delivery(self, group_ids, message_type, sim_step):
         delivery = {receiver_id: {} for receiver_id in group_ids}
         for receiver_id in group_ids:
             for sender_id in group_ids:
-                delivery[receiver_id][sender_id] = (
-                    sender_id == receiver_id or self.message_delivered(message_type)
-                )
+                if sender_id == receiver_id:
+                    delivery[receiver_id][sender_id] = True
+                    continue
+
+                retransmitted = self.try_pending_retransmission(receiver_id, sender_id, message_type, sim_step)
+                if retransmitted:
+                    delivery[receiver_id][sender_id] = True
+                    continue
+
+                delivered = self.message_delivered(message_type)
+                if delivered:
+                    self.clear_pending_retransmission(receiver_id, sender_id, message_type)
+                else:
+                    self.add_pending_retransmission(receiver_id, sender_id, message_type, sim_step)
+                delivery[receiver_id][sender_id] = delivered
         return delivery
 
     def record_pose_staleness(self, sim_step):

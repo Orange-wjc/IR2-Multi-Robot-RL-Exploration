@@ -72,6 +72,11 @@ class TestWorker:
         for message_type in ("map", "pose", "graph"):
             self.skip_info.setdefault(f'{message_type}_msg_attempts', self.env.message_attempts[message_type])
             self.skip_info.setdefault(f'{message_type}_msg_dropped', self.env.message_dropped[message_type])
+            self.skip_info.setdefault(f'{message_type}_retrans_attempts', self.env.retransmission_attempts[message_type])
+            self.skip_info.setdefault(f'{message_type}_retrans_successes', self.env.retransmission_successes[message_type])
+            self.skip_info.setdefault(f'{message_type}_retrans_dropped', self.env.retransmission_dropped[message_type])
+            self.skip_info.setdefault(f'{message_type}_retrans_expired', self.env.retransmission_expired[message_type])
+        self.skip_info.setdefault('pending_retransmissions', self.env.pending_message_count())
         self.perf_metrics['skip_info'] = self.skip_info
 
     def run_episode(self, curr_episode):
@@ -174,6 +179,22 @@ class TestWorker:
             self.perf_metrics[f'{message_type}_msg_successes'] = self.env.message_successes[message_type]
             self.perf_metrics[f'{message_type}_msg_dropped'] = dropped
             self.perf_metrics[f'actual_{message_type}_msg_loss_rate'] = dropped / attempts if attempts > 0 else 0.0
+            self.perf_metrics[f'{message_type}_retrans_attempts'] = self.env.retransmission_attempts[message_type]
+            self.perf_metrics[f'{message_type}_retrans_successes'] = self.env.retransmission_successes[message_type]
+            self.perf_metrics[f'{message_type}_retrans_dropped'] = self.env.retransmission_dropped[message_type]
+            self.perf_metrics[f'{message_type}_retrans_expired'] = self.env.retransmission_expired[message_type]
+        retrans_attempts = sum(self.env.retransmission_attempts.values())
+        retrans_successes = sum(self.env.retransmission_successes.values())
+        retrans_dropped = sum(self.env.retransmission_dropped.values())
+        retrans_expired = sum(self.env.retransmission_expired.values())
+        self.perf_metrics['retrans_attempts'] = retrans_attempts
+        self.perf_metrics['retrans_successes'] = retrans_successes
+        self.perf_metrics['retrans_dropped'] = retrans_dropped
+        self.perf_metrics['retrans_expired'] = retrans_expired
+        self.perf_metrics['retrans_success_rate'] = retrans_successes / retrans_attempts if retrans_attempts > 0 else 0.0
+        self.perf_metrics['retrans_delay_mean'] = self.env.retransmission_delay_sum / self.env.retransmission_delay_count if self.env.retransmission_delay_count > 0 else 0.0
+        self.perf_metrics['retrans_delay_max'] = self.env.retransmission_delay_max
+        self.perf_metrics['pending_retransmissions'] = self.env.pending_message_count()
         self.perf_metrics['pose_staleness_mean'] = self.env.pose_staleness_sum / self.env.pose_staleness_count if self.env.pose_staleness_count > 0 else 0.0
         self.perf_metrics['pose_staleness_max'] = self.env.pose_staleness_max
         self.perf_metrics['travel_steps'] = step + 1

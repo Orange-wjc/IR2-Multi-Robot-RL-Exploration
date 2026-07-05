@@ -35,7 +35,7 @@ def replace_assignment(text, name, value):
     return new_text
 
 
-def write_test_parameters(original_text, map_name, mode, loss, seed):
+def write_test_parameters(original_text, map_name, mode, loss, seed, retransmission):
     text = original_text
     text = replace_assignment(text, "TEST_SET_NAME", repr(map_name))
     text = replace_assignment(text, "ENABLE_PACKET_LOSS", "False")
@@ -45,6 +45,9 @@ def write_test_parameters(original_text, map_name, mode, loss, seed):
     text = replace_assignment(text, "MESSAGE_LOSS_MODE", repr(mode))
     text = replace_assignment(text, "MESSAGE_LOSS_PROB", repr(float(loss)))
     text = replace_assignment(text, "MESSAGE_LOSS_SEED", repr(int(seed)))
+    text = replace_assignment(text, "ENABLE_PRIORITY_RETRANSMISSION", str(retransmission != "off"))
+    if retransmission != "off":
+        text = replace_assignment(text, "RETRANSMISSION_POLICY", repr(retransmission))
     PARAM_PATH.write_text(text, encoding="utf-8")
 
 
@@ -60,9 +63,10 @@ def latest_new_csv(start_time, old_files, pattern):
     return max(candidates, key=lambda p: p.stat().st_mtime)
 
 
-def run_one(map_name, mode, loss, seed, overwrite):
-    target = LOG_DIR / f"{map_name}_msg_{mode}_{loss_suffix(loss)}.csv"
-    skipped_target = LOG_DIR / f"{map_name}_msg_{mode}_{loss_suffix(loss)}_skipped.csv"
+def run_one(map_name, mode, loss, seed, retransmission, overwrite):
+    retrans_suffix = "" if retransmission == "off" else f"_{retransmission}_retrans"
+    target = LOG_DIR / f"{map_name}_msg_{mode}_{loss_suffix(loss)}{retrans_suffix}.csv"
+    skipped_target = LOG_DIR / f"{map_name}_msg_{mode}_{loss_suffix(loss)}{retrans_suffix}_skipped.csv"
     if target.exists() and not overwrite:
         raise FileExistsError(f"{target} already exists. Use --overwrite to replace it.")
     if skipped_target.exists() and not overwrite:
@@ -74,7 +78,7 @@ def run_one(map_name, mode, loss, seed, overwrite):
 
     print("=" * 80, flush=True)
     print(
-        f"Running map={map_name}, message_mode={mode}, message_loss={loss:.1f}, output={target.name}",
+        f"Running map={map_name}, message_mode={mode}, message_loss={loss:.1f}, retransmission={retransmission}, output={target.name}",
         flush=True,
     )
     print("=" * 80, flush=True)
@@ -113,7 +117,7 @@ def parse_args():
         "--modes",
         nargs="+",
         default=["map", "pose", "graph", "all"],
-        choices=["map", "pose", "graph", "all"],
+        choices=["map", "pose", "graph", "all", "random"],
         help="Message types to drop. Default: map pose graph all.",
     )
     parser.add_argument(
@@ -134,6 +138,12 @@ def parse_args():
         action="store_true",
         help="Overwrite existing message-loss CSV files.",
     )
+    parser.add_argument(
+        "--retransmission",
+        default="off",
+        choices=["off", "priority", "equal"],
+        help="Enable pending-message retransmission. Default: off.",
+    )
     return parser.parse_args()
 
 
@@ -147,8 +157,8 @@ def main():
             for mode in args.modes:
                 for loss in args.losses:
                     seed = args.seed + run_index
-                    write_test_parameters(original_text, map_name, mode, loss, seed)
-                    run_one(map_name, mode, loss, seed, args.overwrite)
+                    write_test_parameters(original_text, map_name, mode, loss, seed, args.retransmission)
+                    run_one(map_name, mode, loss, seed, args.retransmission, args.overwrite)
                     run_index += 1
     finally:
         PARAM_PATH.write_text(original_text, encoding="utf-8")

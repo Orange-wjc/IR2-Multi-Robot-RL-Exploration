@@ -22,6 +22,12 @@ def run_test():
                   'map_msg_attempts', 'map_msg_successes', 'map_msg_dropped', 'actual_map_msg_loss_rate', \
                   'pose_msg_attempts', 'pose_msg_successes', 'pose_msg_dropped', 'actual_pose_msg_loss_rate', \
                   'graph_msg_attempts', 'graph_msg_successes', 'graph_msg_dropped', 'actual_graph_msg_loss_rate', \
+                  'retransmission_enabled', 'retransmission_policy', 'retransmission_budget', \
+                  'retrans_attempts', 'retrans_successes', 'retrans_dropped', 'retrans_expired', \
+                  'retrans_success_rate', 'retrans_delay_mean', 'retrans_delay_max', 'pending_retransmissions', \
+                  'map_retrans_attempts', 'map_retrans_successes', 'map_retrans_dropped', 'map_retrans_expired', \
+                  'pose_retrans_attempts', 'pose_retrans_successes', 'pose_retrans_dropped', 'pose_retrans_expired', \
+                  'graph_retrans_attempts', 'graph_retrans_successes', 'graph_retrans_dropped', 'graph_retrans_expired', \
                   'pose_staleness_mean', 'pose_staleness_max']
     skipped_fieldnames = ['eps', 'num_robots', 'map_name', 'map_index', 'meta_agent_id', \
                           'skip_stage', 'skip_reason', 'robot_id', 'target_robot_id', 'step', \
@@ -31,7 +37,12 @@ def run_test():
                           'comm_attempts', 'comm_dropped', \
                           'map_msg_attempts', 'map_msg_dropped', \
                           'pose_msg_attempts', 'pose_msg_dropped', \
-                          'graph_msg_attempts', 'graph_msg_dropped']
+                          'graph_msg_attempts', 'graph_msg_dropped', \
+                          'retransmission_enabled', 'retransmission_policy', 'retransmission_budget', \
+                          'pending_retransmissions', \
+                          'map_retrans_attempts', 'map_retrans_successes', 'map_retrans_dropped', 'map_retrans_expired', \
+                          'pose_retrans_attempts', 'pose_retrans_successes', 'pose_retrans_dropped', 'pose_retrans_expired', \
+                          'graph_retrans_attempts', 'graph_retrans_successes', 'graph_retrans_dropped', 'graph_retrans_expired']
 
     # Create .csv file for data collection
     current_datetime = datetime.now().strftime("%Y-%m-%d_%H%M%S")
@@ -118,6 +129,29 @@ def run_test():
                                         'graph_msg_successes': metrics['graph_msg_successes'], \
                                         'graph_msg_dropped': metrics['graph_msg_dropped'], \
                                         'actual_graph_msg_loss_rate': metrics['actual_graph_msg_loss_rate'], \
+                                        'retransmission_enabled': ENABLE_PRIORITY_RETRANSMISSION, \
+                                        'retransmission_policy': RETRANSMISSION_POLICY, \
+                                        'retransmission_budget': RETRANSMISSION_BUDGET_PER_PAIR, \
+                                        'retrans_attempts': metrics['retrans_attempts'], \
+                                        'retrans_successes': metrics['retrans_successes'], \
+                                        'retrans_dropped': metrics['retrans_dropped'], \
+                                        'retrans_expired': metrics['retrans_expired'], \
+                                        'retrans_success_rate': metrics['retrans_success_rate'], \
+                                        'retrans_delay_mean': metrics['retrans_delay_mean'], \
+                                        'retrans_delay_max': metrics['retrans_delay_max'], \
+                                        'pending_retransmissions': metrics['pending_retransmissions'], \
+                                        'map_retrans_attempts': metrics['map_retrans_attempts'], \
+                                        'map_retrans_successes': metrics['map_retrans_successes'], \
+                                        'map_retrans_dropped': metrics['map_retrans_dropped'], \
+                                        'map_retrans_expired': metrics['map_retrans_expired'], \
+                                        'pose_retrans_attempts': metrics['pose_retrans_attempts'], \
+                                        'pose_retrans_successes': metrics['pose_retrans_successes'], \
+                                        'pose_retrans_dropped': metrics['pose_retrans_dropped'], \
+                                        'pose_retrans_expired': metrics['pose_retrans_expired'], \
+                                        'graph_retrans_attempts': metrics['graph_retrans_attempts'], \
+                                        'graph_retrans_successes': metrics['graph_retrans_successes'], \
+                                        'graph_retrans_dropped': metrics['graph_retrans_dropped'], \
+                                        'graph_retrans_expired': metrics['graph_retrans_expired'], \
                                         'pose_staleness_mean': metrics['pose_staleness_mean'], \
                                         'pose_staleness_max': metrics['pose_staleness_max'] })
                 else:
@@ -149,7 +183,23 @@ def run_test():
                                         'pose_msg_attempts': skip_info.get('pose_msg_attempts', 0), \
                                         'pose_msg_dropped': skip_info.get('pose_msg_dropped', 0), \
                                         'graph_msg_attempts': skip_info.get('graph_msg_attempts', 0), \
-                                        'graph_msg_dropped': skip_info.get('graph_msg_dropped', 0) })
+                                        'graph_msg_dropped': skip_info.get('graph_msg_dropped', 0), \
+                                        'retransmission_enabled': ENABLE_PRIORITY_RETRANSMISSION, \
+                                        'retransmission_policy': RETRANSMISSION_POLICY, \
+                                        'retransmission_budget': RETRANSMISSION_BUDGET_PER_PAIR, \
+                                        'pending_retransmissions': skip_info.get('pending_retransmissions', 0), \
+                                        'map_retrans_attempts': skip_info.get('map_retrans_attempts', 0), \
+                                        'map_retrans_successes': skip_info.get('map_retrans_successes', 0), \
+                                        'map_retrans_dropped': skip_info.get('map_retrans_dropped', 0), \
+                                        'map_retrans_expired': skip_info.get('map_retrans_expired', 0), \
+                                        'pose_retrans_attempts': skip_info.get('pose_retrans_attempts', 0), \
+                                        'pose_retrans_successes': skip_info.get('pose_retrans_successes', 0), \
+                                        'pose_retrans_dropped': skip_info.get('pose_retrans_dropped', 0), \
+                                        'pose_retrans_expired': skip_info.get('pose_retrans_expired', 0), \
+                                        'graph_retrans_attempts': skip_info.get('graph_retrans_attempts', 0), \
+                                        'graph_retrans_successes': skip_info.get('graph_retrans_successes', 0), \
+                                        'graph_retrans_dropped': skip_info.get('graph_retrans_dropped', 0), \
+                                        'graph_retrans_expired': skip_info.get('graph_retrans_expired', 0) })
                 if curr_test < NUM_TEST:
                     job_list.append(meta_agents[info['id']].job.remote(weights, curr_test))
                     curr_test += 1
