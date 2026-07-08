@@ -536,7 +536,7 @@ class Env():
         return True
 
     def has_higher_priority_pending(self, receiver_id, sender_id, message_type, sim_step):
-        if RETRANSMISSION_POLICY.lower() != "priority":
+        if RETRANSMISSION_POLICY.lower() not in ("priority", "adaptive"):
             return False
         current_priority = self.message_priority[message_type]
         for other_type, other_priority in self.message_priority.items():
@@ -547,6 +547,28 @@ class Env():
             if self.pending_retransmissions[receiver_id][sender_id][other_type] is not None:
                 return True
         return False
+
+    def observed_message_loss_rate(self):
+        attempts = sum(self.message_attempts.values())
+        if attempts < ADAPTIVE_RETRANS_MIN_ATTEMPTS:
+            return 0.0
+        return sum(self.message_dropped.values()) / attempts
+
+    def adaptive_retransmission_ready(self, receiver_id, sender_id, message_type, sim_step):
+        if RETRANSMISSION_POLICY.lower() != "adaptive":
+            return True
+
+        pending = self.pending_retransmissions[receiver_id][sender_id][message_type]
+        if pending is None:
+            return False
+
+        pending_age = sim_step - pending["created_step"]
+        if pending_age >= ADAPTIVE_RETRANS_FORCE_AGE:
+            return True
+        if pending_age < ADAPTIVE_RETRANS_MIN_AGE:
+            return False
+
+        return self.observed_message_loss_rate() >= ADAPTIVE_RETRANS_MIN_OBSERVED_LOSS
 
     def can_attempt_retransmission(self, receiver_id, sender_id):
         budget = max(0, RETRANSMISSION_BUDGET_PER_PAIR)
@@ -568,6 +590,8 @@ class Env():
         if pending is None:
             return False
         if self.has_higher_priority_pending(receiver_id, sender_id, message_type, sim_step):
+            return False
+        if not self.adaptive_retransmission_ready(receiver_id, sender_id, message_type, sim_step):
             return False
         if not self.can_attempt_retransmission(receiver_id, sender_id):
             return False

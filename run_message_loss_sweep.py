@@ -141,7 +141,7 @@ def parse_args():
     parser.add_argument(
         "--retransmission",
         default="off",
-        choices=["off", "priority", "equal"],
+        choices=["off", "priority", "equal", "adaptive"],
         help="Enable pending-message retransmission. Default: off.",
     )
     return parser.parse_args()
