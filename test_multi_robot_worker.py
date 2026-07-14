@@ -77,6 +77,9 @@ class TestWorker:
             self.skip_info.setdefault(f'{message_type}_retrans_dropped', self.env.retransmission_dropped[message_type])
             self.skip_info.setdefault(f'{message_type}_retrans_expired', self.env.retransmission_expired[message_type])
         self.skip_info.setdefault('pending_retransmissions', self.env.pending_message_count())
+        self.skip_info.setdefault('rlmr_decisions', self.env.rlmr_decision_count)
+        for action in ("none", "map", "graph", "pose"):
+            self.skip_info.setdefault(f'rlmr_action_{action}', self.env.rlmr_action_counts[action])
         self.perf_metrics['skip_info'] = self.skip_info
 
     def run_episode(self, curr_episode):
@@ -160,9 +163,11 @@ class TestWorker:
                 break
 
         if astar_unsuccessful:
+            self.env.finalize_rlmr_episode(success=False, skipped=True, steps=step + 1)
             self.finalize_skip_metrics()
             return False
 
+        self.env.finalize_rlmr_episode(success=done, skipped=False, steps=step + 1)
         self.perf_metrics['travel_dist'] = max(travel_dist_list)
         self.perf_metrics['explored_rate'] = self.env.explored_rate
         self.perf_metrics['success_rate'] = done
@@ -195,6 +200,10 @@ class TestWorker:
         self.perf_metrics['retrans_delay_mean'] = self.env.retransmission_delay_sum / self.env.retransmission_delay_count if self.env.retransmission_delay_count > 0 else 0.0
         self.perf_metrics['retrans_delay_max'] = self.env.retransmission_delay_max
         self.perf_metrics['pending_retransmissions'] = self.env.pending_message_count()
+        self.perf_metrics['rlmr_decisions'] = self.env.rlmr_decision_count
+        self.perf_metrics['rlmr_q_states'] = self.env.rlmr_policy.num_states() if self.env.rlmr_policy is not None else 0
+        for action in ("none", "map", "graph", "pose"):
+            self.perf_metrics[f'rlmr_action_{action}'] = self.env.rlmr_action_counts[action]
         self.perf_metrics['pose_staleness_mean'] = self.env.pose_staleness_sum / self.env.pose_staleness_count if self.env.pose_staleness_count > 0 else 0.0
         self.perf_metrics['pose_staleness_max'] = self.env.pose_staleness_max
         self.perf_metrics['travel_steps'] = step + 1

@@ -35,9 +35,21 @@ def replace_assignment(text, name, value):
     return new_text
 
 
-def write_test_parameters(original_text, map_name, mode, loss, seed, retransmission):
+def write_test_parameters(
+    original_text,
+    map_name,
+    mode,
+    loss,
+    seed,
+    retransmission_seed,
+    retransmission,
+    episodes,
+    map_offset,
+):
     text = original_text
     text = replace_assignment(text, "TEST_SET_NAME", repr(map_name))
+    text = replace_assignment(text, "TEST_MAP_OFFSET", repr(int(map_offset)))
+    text = replace_assignment(text, "NUM_TEST", repr(int(episodes)))
     text = replace_assignment(text, "ENABLE_PACKET_LOSS", "False")
     text = replace_assignment(text, "PACKET_LOSS_PROB", repr(0.0))
     text = replace_assignment(text, "PACKET_LOSS_SEED", repr(0))
@@ -45,7 +57,9 @@ def write_test_parameters(original_text, map_name, mode, loss, seed, retransmiss
     text = replace_assignment(text, "MESSAGE_LOSS_MODE", repr(mode))
     text = replace_assignment(text, "MESSAGE_LOSS_PROB", repr(float(loss)))
     text = replace_assignment(text, "MESSAGE_LOSS_SEED", repr(int(seed)))
+    text = replace_assignment(text, "RETRANSMISSION_LOSS_SEED", repr(int(retransmission_seed)))
     text = replace_assignment(text, "ENABLE_PRIORITY_RETRANSMISSION", str(retransmission != "off"))
+    text = replace_assignment(text, "RLMR_TRAIN", "False")
     if retransmission != "off":
         text = replace_assignment(text, "RETRANSMISSION_POLICY", repr(retransmission))
     PARAM_PATH.write_text(text, encoding="utf-8")
@@ -63,10 +77,11 @@ def latest_new_csv(start_time, old_files, pattern):
     return max(candidates, key=lambda p: p.stat().st_mtime)
 
 
-def run_one(map_name, mode, loss, seed, retransmission, overwrite):
+def run_one(map_name, mode, loss, seed, retransmission_seed, retransmission, map_offset, output_tag, overwrite):
     retrans_suffix = "" if retransmission == "off" else f"_{retransmission}_retrans"
-    target = LOG_DIR / f"{map_name}_msg_{mode}_{loss_suffix(loss)}{retrans_suffix}.csv"
-    skipped_target = LOG_DIR / f"{map_name}_msg_{mode}_{loss_suffix(loss)}{retrans_suffix}_skipped.csv"
+    tag_suffix = f"_{output_tag}" if output_tag else ""
+    target = LOG_DIR / f"{map_name}_msg_{mode}_{loss_suffix(loss)}{retrans_suffix}{tag_suffix}.csv"
+    skipped_target = LOG_DIR / f"{map_name}_msg_{mode}_{loss_suffix(loss)}{retrans_suffix}{tag_suffix}_skipped.csv"
     if target.exists() and not overwrite:
         raise FileExistsError(f"{target} already exists. Use --overwrite to replace it.")
     if skipped_target.exists() and not overwrite:
@@ -78,7 +93,9 @@ def run_one(map_name, mode, loss, seed, retransmission, overwrite):
 
     print("=" * 80, flush=True)
     print(
-        f"Running map={map_name}, message_mode={mode}, message_loss={loss:.1f}, retransmission={retransmission}, output={target.name}",
+        f"Running map={map_name}, map_offset={map_offset}, message_mode={mode}, "
+        f"message_loss={loss:.1f}, message_seed={seed}, retransmission={retransmission}, "
+        f"retransmission_seed={retransmission_seed}, output={target.name}",
         flush=True,
     )
     print("=" * 80, flush=True)
@@ -134,6 +151,29 @@ def parse_args():
         help="Base message-loss RNG seed. Default: 0.",
     )
     parser.add_argument(
+        "--retransmission-seed",
+        type=int,
+        default=100000,
+        help="Base retransmission-loss RNG seed. Default: 100000.",
+    )
+    parser.add_argument(
+        "--episodes",
+        type=int,
+        default=100,
+        help="Episodes attempted per setting. Default: 100.",
+    )
+    parser.add_argument(
+        "--map-offset",
+        type=int,
+        default=0,
+        help="Start map index for each setting. Default: 0.",
+    )
+    parser.add_argument(
+        "--output-tag",
+        default="",
+        help="Optional suffix for output files, for example heldout_seed1000.",
+    )
+    parser.add_argument(
         "--overwrite",
         action="store_true",
         help="Overwrite existing message-loss CSV files.",
@@ -141,7 +181,7 @@ def parse_args():
     parser.add_argument(
         "--retransmission",
         default="off",
-        choices=["off", "priority", "equal", "adaptive"],
+        choices=["off", "priority", "equal", "adaptive", "rlmr"],
         help="Enable pending-message retransmission. Default: off.",
     )
     return parser.parse_args()
@@ -149,6 +189,12 @@ def parse_args():
 
 def main():
     args = parse_args()
+    if args.episodes <= 0:
+        raise ValueError("--episodes must be positive")
+    if args.map_offset < 0:
+        raise ValueError("--map-offset must be non-negative")
+    if args.output_tag and not re.fullmatch(r"[A-Za-z0-9_-]+", args.output_tag):
+        raise ValueError("--output-tag may contain only letters, numbers, underscores, and hyphens")
     original_text = PARAM_PATH.read_text(encoding="utf-8")
 
     try:
@@ -157,8 +203,29 @@ def main():
             for mode in args.modes:
                 for loss in args.losses:
                     seed = args.seed + run_index
-                    write_test_parameters(original_text, map_name, mode, loss, seed, args.retransmission)
-                    run_one(map_name, mode, loss, seed, args.retransmission, args.overwrite)
+                    retransmission_seed = args.retransmission_seed + run_index
+                    write_test_parameters(
+                        original_text,
+                        map_name,
+                        mode,
+                        loss,
+                        seed,
+                        retransmission_seed,
+                        args.retransmission,
+                        args.episodes,
+                        args.map_offset,
+                    )
+                    run_one(
+                        map_name,
+                        mode,
+                        loss,
+                        seed,
+                        retransmission_seed,
+                        args.retransmission,
+                        args.map_offset,
+                        args.output_tag,
+                        args.overwrite,
+                    )
                     run_index += 1
     finally:
         PARAM_PATH.write_text(original_text, encoding="utf-8")

@@ -15,7 +15,8 @@ from test_multi_robot_worker import TestWorker
 from datetime import datetime
 
 def run_test():
-    fieldnames = ['eps', 'num_robots', 'max_dist', 'steps', 'explored', 'success', 'connectivity', \
+    fieldnames = ['eps', 'map_index', 'map_name', 'num_robots', 'max_dist', 'steps', 'explored', 'success', 'connectivity', \
+                  'test_map_offset', 'message_loss_seed', 'retransmission_loss_seed', \
                   'packet_loss_enabled', 'packet_loss_prob', 'comm_attempts', 'comm_successes', \
                   'comm_dropped', 'actual_packet_loss_rate', \
                   'message_loss_enabled', 'message_loss_mode', 'message_loss_prob', \
@@ -28,8 +29,11 @@ def run_test():
                   'map_retrans_attempts', 'map_retrans_successes', 'map_retrans_dropped', 'map_retrans_expired', \
                   'pose_retrans_attempts', 'pose_retrans_successes', 'pose_retrans_dropped', 'pose_retrans_expired', \
                   'graph_retrans_attempts', 'graph_retrans_successes', 'graph_retrans_dropped', 'graph_retrans_expired', \
+                  'rlmr_train', 'rlmr_decisions', 'rlmr_q_states', \
+                  'rlmr_action_none', 'rlmr_action_map', 'rlmr_action_graph', 'rlmr_action_pose', \
                   'pose_staleness_mean', 'pose_staleness_max']
     skipped_fieldnames = ['eps', 'num_robots', 'map_name', 'map_index', 'meta_agent_id', \
+                          'test_map_offset', 'message_loss_seed', 'retransmission_loss_seed', \
                           'skip_stage', 'skip_reason', 'robot_id', 'target_robot_id', 'step', \
                           'current_position', 'destination_position', \
                           'message_loss_enabled', 'message_loss_mode', 'message_loss_prob', \
@@ -42,7 +46,9 @@ def run_test():
                           'pending_retransmissions', \
                           'map_retrans_attempts', 'map_retrans_successes', 'map_retrans_dropped', 'map_retrans_expired', \
                           'pose_retrans_attempts', 'pose_retrans_successes', 'pose_retrans_dropped', 'pose_retrans_expired', \
-                          'graph_retrans_attempts', 'graph_retrans_successes', 'graph_retrans_dropped', 'graph_retrans_expired']
+                          'graph_retrans_attempts', 'graph_retrans_successes', 'graph_retrans_dropped', 'graph_retrans_expired', \
+                          'rlmr_train', 'rlmr_decisions', \
+                          'rlmr_action_none', 'rlmr_action_map', 'rlmr_action_graph', 'rlmr_action_pose']
 
     # Create .csv file for data collection
     current_datetime = datetime.now().strftime("%Y-%m-%d_%H%M%S")
@@ -102,12 +108,17 @@ def run_test():
                     with open(csv_file_path, mode='a') as csv_file:
                         writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
                         writer.writerow({'eps': info['episode_number'], \
+                                        'map_index': info['map_index'], \
+                                        'map_name': info['map_name'], \
                                         'num_robots': info['n_agent'], \
                                         'max_dist': metrics['travel_dist'], \
                                         'steps': metrics['travel_steps'], \
                                         'explored': metrics['explored_rate'], \
                                         'success': metrics['success_rate'], \
                                         'connectivity': metrics['connectivity_rate'], \
+                                        'test_map_offset': TEST_MAP_OFFSET, \
+                                        'message_loss_seed': MESSAGE_LOSS_SEED, \
+                                        'retransmission_loss_seed': RETRANSMISSION_LOSS_SEED, \
                                         'packet_loss_enabled': ENABLE_PACKET_LOSS, \
                                         'packet_loss_prob': PACKET_LOSS_PROB, \
                                         'comm_attempts': metrics['comm_attempts'], \
@@ -152,6 +163,13 @@ def run_test():
                                         'graph_retrans_successes': metrics['graph_retrans_successes'], \
                                         'graph_retrans_dropped': metrics['graph_retrans_dropped'], \
                                         'graph_retrans_expired': metrics['graph_retrans_expired'], \
+                                        'rlmr_train': RLMR_TRAIN, \
+                                        'rlmr_decisions': metrics['rlmr_decisions'], \
+                                        'rlmr_q_states': metrics['rlmr_q_states'], \
+                                        'rlmr_action_none': metrics['rlmr_action_none'], \
+                                        'rlmr_action_map': metrics['rlmr_action_map'], \
+                                        'rlmr_action_graph': metrics['rlmr_action_graph'], \
+                                        'rlmr_action_pose': metrics['rlmr_action_pose'], \
                                         'pose_staleness_mean': metrics['pose_staleness_mean'], \
                                         'pose_staleness_max': metrics['pose_staleness_max'] })
                 else:
@@ -164,6 +182,9 @@ def run_test():
                                         'map_name': skip_info.get('map_name', ''), \
                                         'map_index': skip_info.get('map_index', ''), \
                                         'meta_agent_id': skip_info.get('meta_agent_id', info['id']), \
+                                        'test_map_offset': TEST_MAP_OFFSET, \
+                                        'message_loss_seed': MESSAGE_LOSS_SEED, \
+                                        'retransmission_loss_seed': RETRANSMISSION_LOSS_SEED, \
                                         'skip_stage': skip_info.get('skip_stage', ''), \
                                         'skip_reason': skip_info.get('skip_reason', ''), \
                                         'robot_id': skip_info.get('robot_id', ''), \
@@ -199,7 +220,13 @@ def run_test():
                                         'graph_retrans_attempts': skip_info.get('graph_retrans_attempts', 0), \
                                         'graph_retrans_successes': skip_info.get('graph_retrans_successes', 0), \
                                         'graph_retrans_dropped': skip_info.get('graph_retrans_dropped', 0), \
-                                        'graph_retrans_expired': skip_info.get('graph_retrans_expired', 0) })
+                                        'graph_retrans_expired': skip_info.get('graph_retrans_expired', 0), \
+                                        'rlmr_train': RLMR_TRAIN, \
+                                        'rlmr_decisions': skip_info.get('rlmr_decisions', 0), \
+                                        'rlmr_action_none': skip_info.get('rlmr_action_none', 0), \
+                                        'rlmr_action_map': skip_info.get('rlmr_action_map', 0), \
+                                        'rlmr_action_graph': skip_info.get('rlmr_action_graph', 0), \
+                                        'rlmr_action_pose': skip_info.get('rlmr_action_pose', 0) })
                 if curr_test < NUM_TEST:
                     job_list.append(meta_agents[info['id']].job.remote(weights, curr_test))
                     curr_test += 1
@@ -241,11 +268,12 @@ class Runner(object):
     def do_job(self, episode_number):
         """ Execute simulation episode and gather experience tuples & metrics """
         n_agent = np.random.randint(NUM_ROBOTS_MIN, NUM_ROBOTS_MAX+1, 1)[0]     
-        worker = TestWorker(self.meta_agent_id, n_agent, self.local_network, episode_number, device=self.device, save_image=SAVE_GIFS, greedy=True)
+        map_index = TEST_MAP_OFFSET + episode_number
+        worker = TestWorker(self.meta_agent_id, n_agent, self.local_network, map_index, device=self.device, save_image=SAVE_GIFS, greedy=True)
         success = worker.work(episode_number)
 
         perf_metrics = worker.perf_metrics
-        return success, perf_metrics, n_agent
+        return success, perf_metrics, n_agent, map_index, worker.env.file_path
 
     def job(self, weights, episode_number):
         """ Executes simulation episode """
@@ -254,12 +282,14 @@ class Runner(object):
         # Set the local weights to the global weight values from the master network
         self.set_weights(weights)
 
-        success, metrics, n_agent = self.do_job(episode_number)
+        success, metrics, n_agent, map_index, map_name = self.do_job(episode_number)
 
         info = {
             "id": self.meta_agent_id,
             "episode_number": episode_number,
-            "n_agent": n_agent
+            "n_agent": n_agent,
+            "map_index": map_index,
+            "map_name": map_name,
         }
 
         return success, metrics, info

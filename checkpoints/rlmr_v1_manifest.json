@@ -1,0 +1,86 @@
+{
+  "artifact_version": "rlmr-v1-heldout",
+  "created_date": "2026-07-14",
+  "q_table": {
+    "file": "checkpoints/rlmr_v1_q_table.json",
+    "source_file": "mar_inference/rlmr_q_table.json",
+    "sha256": "a3591727c0c687590011144e94415a98a8a9bfa7e45ad2e2b41a5860b4b89ef5",
+    "size_bytes": 186327,
+    "state_count": 1957
+  },
+  "controller": {
+    "algorithm": "tabular episodic terminal-reward update",
+    "actions": [
+      "none",
+      "map",
+      "graph",
+      "pose"
+    ],
+    "frozen_for_evaluation": true
+  },
+  "training": {
+    "map_set": "corridor",
+    "map_indices": "0-199",
+    "message_loss_mode": "random",
+    "episodes_by_loss": {
+      "0.1": 400,
+      "0.2": 400,
+      "0.3": 400,
+      "0.5": 551
+    },
+    "note": "The interrupted final setting caused 0.5 to have 151 additional episodes. V1 convergence was not established."
+  },
+  "heldout_evaluation": {
+    "map_set": "corridor",
+    "map_indices": "200-299",
+    "episodes_per_setting": 100,
+    "message_loss_seed_base": 1000,
+    "retransmission_loss_seed_base": 2000,
+    "message_loss_probabilities": [
+      0.1,
+      0.2,
+      0.3,
+      0.5
+    ],
+    "robust_success_percent": {
+      "no_retransmission": [
+        73.0,
+        74.0,
+        50.0,
+        11.0
+      ],
+      "priority_retransmission": [
+        86.0,
+        67.0,
+        59.0,
+        36.0
+      ],
+      "rlmr_v1": [
+        79.0,
+        60.0,
+        48.0,
+        32.0
+      ]
+    },
+    "mean_retransmission_attempts_per_episode": {
+      "priority_retransmission": [
+        315.4,
+        513.0,
+        609.4,
+        730.4
+      ],
+      "rlmr_v1": [
+        142.2,
+        196.6,
+        267.8,
+        529.7
+      ]
+    }
+  },
+  "excluded_artifacts": [
+    "raw CSV results",
+    "generated images and GIFs",
+    "project documentation",
+    "paper PDF"
+  ]
+}
