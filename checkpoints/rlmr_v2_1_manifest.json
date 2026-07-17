@@ -1,6 +1,7 @@
 {
   "artifact_version": "rlmr-v2.1-heldout-seed1",
   "created_date": "2026-07-17",
+  "metrics_revision": 2,
   "git_tag": "rlmr-v2.1-heldout-seed1",
   "q_tables": {
     "v2": {
@@ -64,15 +65,16 @@
       "rlmr_v2_1": 59.25
     },
     "mean_retransmission_attempts_per_attempted_episode": {
-      "priority": [238.49, 420.97, 470.99, 386.4],
-      "rlmr_v2": [165.91, 235.07, 261.75, 265.57],
-      "rlmr_v2_1": [133.38, 182.79, 164.45, 224.14]
+      "priority": [271.44, 473.04, 578.18, 715.0],
+      "rlmr_v2": [180.71, 294.69, 349.57, 472.54],
+      "rlmr_v2_1": [140.29, 202.87, 205.67, 387.73]
     },
     "overall_mean_retransmission_attempts_per_attempted_episode": {
-      "priority": 379.2125,
-      "rlmr_v2": 232.075,
-      "rlmr_v2_1": 176.19
+      "priority": 509.415,
+      "rlmr_v2": 324.3775,
+      "rlmr_v2_1": 234.14
     },
+    "legacy_skipped_retransmission_accounting": "Sum map_retrans_attempts, pose_retrans_attempts, and graph_retrans_attempts because legacy skipped CSV files do not contain the aggregate retrans_attempts column.",
     "skipped_episodes": {
       "off": 167,
       "priority": 145,
@@ -84,16 +86,17 @@
     "v2_1_minus_v2_success_percentage_points": 1.0,
     "v2_1_vs_v2_mcnemar_exploratory_p": 0.8102758773,
     "v2_1_minus_v2_cluster_bootstrap_success_95ci_percentage_points": [-4.75, 6.75],
-    "v2_1_minus_v2_retransmissions_per_episode": -55.885,
-    "v2_1_minus_v2_cluster_bootstrap_retransmission_95ci": [-89.44, -21.3575],
+    "v2_1_minus_v2_retransmissions_per_episode": -90.2375,
+    "v2_1_minus_v2_cluster_bootstrap_retransmission_95ci": [-118.8175, -61.4675],
+    "v2_1_vs_v2_retransmission_reduction_percent": 27.8,
     "v2_1_vs_priority_success_percentage_points": -1.75,
-    "v2_1_vs_priority_retransmission_reduction_percent": 53.5
+    "v2_1_vs_priority_retransmission_reduction_percent": 54.0
   },
   "known_limitations": [
     "This is the first held-out communication seed only; additional seeds are required.",
-    "Skipped CSV rows currently report zero retransmission counters, so attempted-episode communication means underestimate traffic before skipped failures.",
+    "Legacy skipped CSV files omit the aggregate retrans_attempts column, but their per-message retransmission counters preserve the traffic and must be summed during analysis.",
     "All skipped episodes in this run were rendezvous_astar_path_none failures.",
     "RLMR-v2.1 reduced success by 8 percentage points versus V2 at message loss 0.1."
   ],
-  "conclusion": "RLMR-v2.1 maintained success comparable to Priority while reducing recorded retransmission attempts by 53.5%. Compared with V2, it increased overall robust success by 1 point and reduced recorded retransmissions by 24.1%; the success difference was not statistically significant in this seed."
+  "conclusion": "RLMR-v2.1 maintained success comparable to Priority while reducing retransmission attempts by 54.0%. Compared with V2, it increased overall robust success by 1 point and reduced retransmissions by 27.8%; the success difference was not statistically significant in this seed."
 }

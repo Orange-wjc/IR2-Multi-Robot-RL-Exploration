@@ -54,18 +54,20 @@ def run_test():
                           'current_position', 'destination_position', \
                           'message_loss_enabled', 'message_loss_mode', 'message_loss_prob', \
                           'packet_loss_enabled', 'packet_loss_prob', \
-                          'comm_attempts', 'comm_dropped', \
-                          'map_msg_attempts', 'map_msg_dropped', \
-                          'pose_msg_attempts', 'pose_msg_dropped', \
-                          'graph_msg_attempts', 'graph_msg_dropped', \
+                          'comm_attempts', 'comm_successes', 'comm_dropped', 'actual_packet_loss_rate', \
+                          'map_msg_attempts', 'map_msg_successes', 'map_msg_dropped', 'actual_map_msg_loss_rate', \
+                          'pose_msg_attempts', 'pose_msg_successes', 'pose_msg_dropped', 'actual_pose_msg_loss_rate', \
+                          'graph_msg_attempts', 'graph_msg_successes', 'graph_msg_dropped', 'actual_graph_msg_loss_rate', \
                           'retransmission_enabled', 'retransmission_policy', 'retransmission_budget', \
-                          'pending_retransmissions', \
+                          'retrans_attempts', 'retrans_successes', 'retrans_dropped', 'retrans_expired', \
+                          'retrans_success_rate', 'retrans_delay_mean', 'retrans_delay_max', 'pending_retransmissions', \
                           'map_retrans_attempts', 'map_retrans_successes', 'map_retrans_dropped', 'map_retrans_expired', \
                           'pose_retrans_attempts', 'pose_retrans_successes', 'pose_retrans_dropped', 'pose_retrans_expired', \
                           'graph_retrans_attempts', 'graph_retrans_successes', 'graph_retrans_dropped', 'graph_retrans_expired', \
                           'rlmr_version', 'rlmr_train', 'rlmr_decisions', 'rlmr_q_states', \
                           'rlmr_td_updates', 'rlmr_mean_abs_td_error', 'rlmr_forced_map_actions', 'rlmr_unseen_states', \
-                          'rlmr_action_none', 'rlmr_action_map', 'rlmr_action_graph', 'rlmr_action_pose']
+                          'rlmr_action_none', 'rlmr_action_map', 'rlmr_action_graph', 'rlmr_action_pose', \
+                          'pose_staleness_mean', 'pose_staleness_max']
 
     # Create .csv file for data collection
     current_datetime = datetime.now().strftime("%Y-%m-%d_%H%M%S")
@@ -222,16 +224,31 @@ def run_test():
                                         'packet_loss_enabled': ENABLE_PACKET_LOSS, \
                                         'packet_loss_prob': PACKET_LOSS_PROB, \
                                         'comm_attempts': skip_info.get('comm_attempts', 0), \
+                                        'comm_successes': skip_info.get('comm_successes', 0), \
                                         'comm_dropped': skip_info.get('comm_dropped', 0), \
+                                        'actual_packet_loss_rate': skip_info.get('actual_packet_loss_rate', 0.0), \
                                         'map_msg_attempts': skip_info.get('map_msg_attempts', 0), \
+                                        'map_msg_successes': skip_info.get('map_msg_successes', 0), \
                                         'map_msg_dropped': skip_info.get('map_msg_dropped', 0), \
+                                        'actual_map_msg_loss_rate': skip_info.get('actual_map_msg_loss_rate', 0.0), \
                                         'pose_msg_attempts': skip_info.get('pose_msg_attempts', 0), \
+                                        'pose_msg_successes': skip_info.get('pose_msg_successes', 0), \
                                         'pose_msg_dropped': skip_info.get('pose_msg_dropped', 0), \
+                                        'actual_pose_msg_loss_rate': skip_info.get('actual_pose_msg_loss_rate', 0.0), \
                                         'graph_msg_attempts': skip_info.get('graph_msg_attempts', 0), \
+                                        'graph_msg_successes': skip_info.get('graph_msg_successes', 0), \
                                         'graph_msg_dropped': skip_info.get('graph_msg_dropped', 0), \
+                                        'actual_graph_msg_loss_rate': skip_info.get('actual_graph_msg_loss_rate', 0.0), \
                                         'retransmission_enabled': ENABLE_PRIORITY_RETRANSMISSION, \
                                         'retransmission_policy': RETRANSMISSION_POLICY, \
                                         'retransmission_budget': RETRANSMISSION_BUDGET_PER_PAIR, \
+                                        'retrans_attempts': skip_info.get('retrans_attempts', 0), \
+                                        'retrans_successes': skip_info.get('retrans_successes', 0), \
+                                        'retrans_dropped': skip_info.get('retrans_dropped', 0), \
+                                        'retrans_expired': skip_info.get('retrans_expired', 0), \
+                                        'retrans_success_rate': skip_info.get('retrans_success_rate', 0.0), \
+                                        'retrans_delay_mean': skip_info.get('retrans_delay_mean', 0.0), \
+                                        'retrans_delay_max': skip_info.get('retrans_delay_max', 0), \
                                         'pending_retransmissions': skip_info.get('pending_retransmissions', 0), \
                                         'map_retrans_attempts': skip_info.get('map_retrans_attempts', 0), \
                                         'map_retrans_successes': skip_info.get('map_retrans_successes', 0), \
@@ -256,7 +273,9 @@ def run_test():
                                         'rlmr_action_none': skip_info.get('rlmr_action_none', 0), \
                                         'rlmr_action_map': skip_info.get('rlmr_action_map', 0), \
                                         'rlmr_action_graph': skip_info.get('rlmr_action_graph', 0), \
-                                        'rlmr_action_pose': skip_info.get('rlmr_action_pose', 0) })
+                                        'rlmr_action_pose': skip_info.get('rlmr_action_pose', 0), \
+                                        'pose_staleness_mean': skip_info.get('pose_staleness_mean', 0.0), \
+                                        'pose_staleness_max': skip_info.get('pose_staleness_max', 0.0) })
                 if curr_test < NUM_TEST:
                     job_list.append(meta_agents[info['id']].job.remote(weights, curr_test))
                     curr_test += 1

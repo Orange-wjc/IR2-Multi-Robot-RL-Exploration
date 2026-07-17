@@ -67,16 +67,8 @@ class TestWorker:
         self.skip_info = skip_info
 
     def finalize_skip_metrics(self):
-        self.skip_info.setdefault('comm_attempts', self.env.comm_attempts)
-        self.skip_info.setdefault('comm_dropped', self.env.comm_dropped)
-        for message_type in ("map", "pose", "graph"):
-            self.skip_info.setdefault(f'{message_type}_msg_attempts', self.env.message_attempts[message_type])
-            self.skip_info.setdefault(f'{message_type}_msg_dropped', self.env.message_dropped[message_type])
-            self.skip_info.setdefault(f'{message_type}_retrans_attempts', self.env.retransmission_attempts[message_type])
-            self.skip_info.setdefault(f'{message_type}_retrans_successes', self.env.retransmission_successes[message_type])
-            self.skip_info.setdefault(f'{message_type}_retrans_dropped', self.env.retransmission_dropped[message_type])
-            self.skip_info.setdefault(f'{message_type}_retrans_expired', self.env.retransmission_expired[message_type])
-        self.skip_info.setdefault('pending_retransmissions', self.env.pending_message_count())
+        for name, value in self.communication_metrics().items():
+            self.skip_info.setdefault(name, value)
         self.skip_info.setdefault('rlmr_decisions', self.env.rlmr_decision_count)
         for action in ("none", "map", "graph", "pose"):
             self.skip_info.setdefault(f'rlmr_action_{action}', self.env.rlmr_action_counts[action])
@@ -97,6 +89,45 @@ class TestWorker:
             'rlmr_forced_map_actions': self.env.rlmr_forced_map_actions,
             'rlmr_unseen_states': unseen_states,
         }
+
+    def communication_metrics(self):
+        comm_attempts = self.env.comm_attempts
+        comm_dropped = self.env.comm_dropped
+        metrics = {
+            'comm_attempts': comm_attempts,
+            'comm_successes': self.env.comm_successes,
+            'comm_dropped': comm_dropped,
+            'actual_packet_loss_rate': comm_dropped / comm_attempts if comm_attempts > 0 else 0.0,
+        }
+        for message_type in ("map", "pose", "graph"):
+            attempts = self.env.message_attempts[message_type]
+            dropped = self.env.message_dropped[message_type]
+            metrics[f'{message_type}_msg_attempts'] = attempts
+            metrics[f'{message_type}_msg_successes'] = self.env.message_successes[message_type]
+            metrics[f'{message_type}_msg_dropped'] = dropped
+            metrics[f'actual_{message_type}_msg_loss_rate'] = dropped / attempts if attempts > 0 else 0.0
+            metrics[f'{message_type}_retrans_attempts'] = self.env.retransmission_attempts[message_type]
+            metrics[f'{message_type}_retrans_successes'] = self.env.retransmission_successes[message_type]
+            metrics[f'{message_type}_retrans_dropped'] = self.env.retransmission_dropped[message_type]
+            metrics[f'{message_type}_retrans_expired'] = self.env.retransmission_expired[message_type]
+
+        retrans_attempts = sum(self.env.retransmission_attempts.values())
+        retrans_successes = sum(self.env.retransmission_successes.values())
+        metrics.update({
+            'retrans_attempts': retrans_attempts,
+            'retrans_successes': retrans_successes,
+            'retrans_dropped': sum(self.env.retransmission_dropped.values()),
+            'retrans_expired': sum(self.env.retransmission_expired.values()),
+            'retrans_success_rate': retrans_successes / retrans_attempts if retrans_attempts > 0 else 0.0,
+            'retrans_delay_mean': self.env.retransmission_delay_sum / self.env.retransmission_delay_count
+            if self.env.retransmission_delay_count > 0 else 0.0,
+            'retrans_delay_max': self.env.retransmission_delay_max,
+            'pending_retransmissions': self.env.pending_message_count(),
+            'pose_staleness_mean': self.env.pose_staleness_sum / self.env.pose_staleness_count
+            if self.env.pose_staleness_count > 0 else 0.0,
+            'pose_staleness_max': self.env.pose_staleness_max,
+        })
+        return metrics
 
     def run_episode(self, curr_episode):
         """ Run simulation episode for multiple robots """
@@ -199,39 +230,11 @@ class TestWorker:
         self.perf_metrics['success_rate'] = done
         self.perf_metrics['connectivity_rate'] = self.env.connectivity_rate
         self.perf_metrics['agents_connected_percentage'] = self.env.agents_connected_percentage
-        self.perf_metrics['comm_attempts'] = self.env.comm_attempts
-        self.perf_metrics['comm_successes'] = self.env.comm_successes
-        self.perf_metrics['comm_dropped'] = self.env.comm_dropped
-        self.perf_metrics['actual_packet_loss_rate'] = self.env.comm_dropped / self.env.comm_attempts if self.env.comm_attempts > 0 else 0.0
-        for message_type in ("map", "pose", "graph"):
-            attempts = self.env.message_attempts[message_type]
-            dropped = self.env.message_dropped[message_type]
-            self.perf_metrics[f'{message_type}_msg_attempts'] = attempts
-            self.perf_metrics[f'{message_type}_msg_successes'] = self.env.message_successes[message_type]
-            self.perf_metrics[f'{message_type}_msg_dropped'] = dropped
-            self.perf_metrics[f'actual_{message_type}_msg_loss_rate'] = dropped / attempts if attempts > 0 else 0.0
-            self.perf_metrics[f'{message_type}_retrans_attempts'] = self.env.retransmission_attempts[message_type]
-            self.perf_metrics[f'{message_type}_retrans_successes'] = self.env.retransmission_successes[message_type]
-            self.perf_metrics[f'{message_type}_retrans_dropped'] = self.env.retransmission_dropped[message_type]
-            self.perf_metrics[f'{message_type}_retrans_expired'] = self.env.retransmission_expired[message_type]
-        retrans_attempts = sum(self.env.retransmission_attempts.values())
-        retrans_successes = sum(self.env.retransmission_successes.values())
-        retrans_dropped = sum(self.env.retransmission_dropped.values())
-        retrans_expired = sum(self.env.retransmission_expired.values())
-        self.perf_metrics['retrans_attempts'] = retrans_attempts
-        self.perf_metrics['retrans_successes'] = retrans_successes
-        self.perf_metrics['retrans_dropped'] = retrans_dropped
-        self.perf_metrics['retrans_expired'] = retrans_expired
-        self.perf_metrics['retrans_success_rate'] = retrans_successes / retrans_attempts if retrans_attempts > 0 else 0.0
-        self.perf_metrics['retrans_delay_mean'] = self.env.retransmission_delay_sum / self.env.retransmission_delay_count if self.env.retransmission_delay_count > 0 else 0.0
-        self.perf_metrics['retrans_delay_max'] = self.env.retransmission_delay_max
-        self.perf_metrics['pending_retransmissions'] = self.env.pending_message_count()
+        self.perf_metrics.update(self.communication_metrics())
         self.perf_metrics['rlmr_decisions'] = self.env.rlmr_decision_count
         for action in ("none", "map", "graph", "pose"):
             self.perf_metrics[f'rlmr_action_{action}'] = self.env.rlmr_action_counts[action]
         self.perf_metrics.update(self.rlmr_policy_metrics())
-        self.perf_metrics['pose_staleness_mean'] = self.env.pose_staleness_sum / self.env.pose_staleness_count if self.env.pose_staleness_count > 0 else 0.0
-        self.perf_metrics['pose_staleness_max'] = self.env.pose_staleness_max
         self.perf_metrics['travel_steps'] = step + 1
 
         # save merged gif
