@@ -7,6 +7,10 @@ from test_parameter import *
 import ray
 import numpy as np
 import os
+import random
+
+os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+
 import torch
 import csv
 import pandas as pd
@@ -14,9 +18,20 @@ from model import PolicyNet
 from test_multi_robot_worker import TestWorker
 from datetime import datetime
 
+
+def seed_episode(map_index):
+    seed = int((TEST_RANDOM_SEED + map_index) % (2 ** 32))
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    torch.use_deterministic_algorithms(True)
+    return seed
+
 def run_test():
     fieldnames = ['eps', 'map_index', 'map_name', 'num_robots', 'max_dist', 'steps', 'explored', 'success', 'connectivity', \
-                  'test_map_offset', 'message_loss_seed', 'retransmission_loss_seed', \
+                  'test_map_offset', 'simulation_seed', 'message_loss_seed', 'retransmission_loss_seed', \
                   'packet_loss_enabled', 'packet_loss_prob', 'comm_attempts', 'comm_successes', \
                   'comm_dropped', 'actual_packet_loss_rate', \
                   'message_loss_enabled', 'message_loss_mode', 'message_loss_prob', \
@@ -29,11 +44,12 @@ def run_test():
                   'map_retrans_attempts', 'map_retrans_successes', 'map_retrans_dropped', 'map_retrans_expired', \
                   'pose_retrans_attempts', 'pose_retrans_successes', 'pose_retrans_dropped', 'pose_retrans_expired', \
                   'graph_retrans_attempts', 'graph_retrans_successes', 'graph_retrans_dropped', 'graph_retrans_expired', \
-                  'rlmr_train', 'rlmr_decisions', 'rlmr_q_states', \
+                  'rlmr_version', 'rlmr_train', 'rlmr_decisions', 'rlmr_q_states', \
+                  'rlmr_td_updates', 'rlmr_mean_abs_td_error', 'rlmr_forced_map_actions', 'rlmr_unseen_states', \
                   'rlmr_action_none', 'rlmr_action_map', 'rlmr_action_graph', 'rlmr_action_pose', \
                   'pose_staleness_mean', 'pose_staleness_max']
     skipped_fieldnames = ['eps', 'num_robots', 'map_name', 'map_index', 'meta_agent_id', \
-                          'test_map_offset', 'message_loss_seed', 'retransmission_loss_seed', \
+                          'test_map_offset', 'simulation_seed', 'message_loss_seed', 'retransmission_loss_seed', \
                           'skip_stage', 'skip_reason', 'robot_id', 'target_robot_id', 'step', \
                           'current_position', 'destination_position', \
                           'message_loss_enabled', 'message_loss_mode', 'message_loss_prob', \
@@ -47,7 +63,8 @@ def run_test():
                           'map_retrans_attempts', 'map_retrans_successes', 'map_retrans_dropped', 'map_retrans_expired', \
                           'pose_retrans_attempts', 'pose_retrans_successes', 'pose_retrans_dropped', 'pose_retrans_expired', \
                           'graph_retrans_attempts', 'graph_retrans_successes', 'graph_retrans_dropped', 'graph_retrans_expired', \
-                          'rlmr_train', 'rlmr_decisions', \
+                          'rlmr_version', 'rlmr_train', 'rlmr_decisions', 'rlmr_q_states', \
+                          'rlmr_td_updates', 'rlmr_mean_abs_td_error', 'rlmr_forced_map_actions', 'rlmr_unseen_states', \
                           'rlmr_action_none', 'rlmr_action_map', 'rlmr_action_graph', 'rlmr_action_pose']
 
     # Create .csv file for data collection
@@ -117,6 +134,7 @@ def run_test():
                                         'success': metrics['success_rate'], \
                                         'connectivity': metrics['connectivity_rate'], \
                                         'test_map_offset': TEST_MAP_OFFSET, \
+                                        'simulation_seed': info['simulation_seed'], \
                                         'message_loss_seed': MESSAGE_LOSS_SEED, \
                                         'retransmission_loss_seed': RETRANSMISSION_LOSS_SEED, \
                                         'packet_loss_enabled': ENABLE_PACKET_LOSS, \
@@ -163,9 +181,14 @@ def run_test():
                                         'graph_retrans_successes': metrics['graph_retrans_successes'], \
                                         'graph_retrans_dropped': metrics['graph_retrans_dropped'], \
                                         'graph_retrans_expired': metrics['graph_retrans_expired'], \
-                                        'rlmr_train': RLMR_TRAIN, \
+                                        'rlmr_version': metrics['rlmr_version'], \
+                                        'rlmr_train': metrics['rlmr_train'], \
                                         'rlmr_decisions': metrics['rlmr_decisions'], \
                                         'rlmr_q_states': metrics['rlmr_q_states'], \
+                                        'rlmr_td_updates': metrics['rlmr_td_updates'], \
+                                        'rlmr_mean_abs_td_error': metrics['rlmr_mean_abs_td_error'], \
+                                        'rlmr_forced_map_actions': metrics['rlmr_forced_map_actions'], \
+                                        'rlmr_unseen_states': metrics['rlmr_unseen_states'], \
                                         'rlmr_action_none': metrics['rlmr_action_none'], \
                                         'rlmr_action_map': metrics['rlmr_action_map'], \
                                         'rlmr_action_graph': metrics['rlmr_action_graph'], \
@@ -183,6 +206,7 @@ def run_test():
                                         'map_index': skip_info.get('map_index', ''), \
                                         'meta_agent_id': skip_info.get('meta_agent_id', info['id']), \
                                         'test_map_offset': TEST_MAP_OFFSET, \
+                                        'simulation_seed': info['simulation_seed'], \
                                         'message_loss_seed': MESSAGE_LOSS_SEED, \
                                         'retransmission_loss_seed': RETRANSMISSION_LOSS_SEED, \
                                         'skip_stage': skip_info.get('skip_stage', ''), \
@@ -221,8 +245,14 @@ def run_test():
                                         'graph_retrans_successes': skip_info.get('graph_retrans_successes', 0), \
                                         'graph_retrans_dropped': skip_info.get('graph_retrans_dropped', 0), \
                                         'graph_retrans_expired': skip_info.get('graph_retrans_expired', 0), \
-                                        'rlmr_train': RLMR_TRAIN, \
+                                        'rlmr_version': skip_info.get('rlmr_version', 'off'), \
+                                        'rlmr_train': skip_info.get('rlmr_train', False), \
                                         'rlmr_decisions': skip_info.get('rlmr_decisions', 0), \
+                                        'rlmr_q_states': skip_info.get('rlmr_q_states', 0), \
+                                        'rlmr_td_updates': skip_info.get('rlmr_td_updates', 0), \
+                                        'rlmr_mean_abs_td_error': skip_info.get('rlmr_mean_abs_td_error', 0.0), \
+                                        'rlmr_forced_map_actions': skip_info.get('rlmr_forced_map_actions', 0), \
+                                        'rlmr_unseen_states': skip_info.get('rlmr_unseen_states', 0), \
                                         'rlmr_action_none': skip_info.get('rlmr_action_none', 0), \
                                         'rlmr_action_map': skip_info.get('rlmr_action_map', 0), \
                                         'rlmr_action_graph': skip_info.get('rlmr_action_graph', 0), \
@@ -267,13 +297,14 @@ class Runner(object):
 
     def do_job(self, episode_number):
         """ Execute simulation episode and gather experience tuples & metrics """
-        n_agent = np.random.randint(NUM_ROBOTS_MIN, NUM_ROBOTS_MAX+1, 1)[0]     
         map_index = TEST_MAP_OFFSET + episode_number
+        simulation_seed = seed_episode(map_index)
+        n_agent = np.random.randint(NUM_ROBOTS_MIN, NUM_ROBOTS_MAX+1, 1)[0]
         worker = TestWorker(self.meta_agent_id, n_agent, self.local_network, map_index, device=self.device, save_image=SAVE_GIFS, greedy=True)
         success = worker.work(episode_number)
 
         perf_metrics = worker.perf_metrics
-        return success, perf_metrics, n_agent, map_index, worker.env.file_path
+        return success, perf_metrics, n_agent, map_index, worker.env.file_path, simulation_seed
 
     def job(self, weights, episode_number):
         """ Executes simulation episode """
@@ -282,7 +313,7 @@ class Runner(object):
         # Set the local weights to the global weight values from the master network
         self.set_weights(weights)
 
-        success, metrics, n_agent, map_index, map_name = self.do_job(episode_number)
+        success, metrics, n_agent, map_index, map_name, simulation_seed = self.do_job(episode_number)
 
         info = {
             "id": self.meta_agent_id,
@@ -290,6 +321,7 @@ class Runner(object):
             "n_agent": n_agent,
             "map_index": map_index,
             "map_name": map_name,
+            "simulation_seed": simulation_seed,
         }
 
         return success, metrics, info

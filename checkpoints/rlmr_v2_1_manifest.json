@@ -1,0 +1,99 @@
+{
+  "artifact_version": "rlmr-v2.1-heldout-seed1",
+  "created_date": "2026-07-17",
+  "git_tag": "rlmr-v2.1-heldout-seed1",
+  "q_tables": {
+    "v2": {
+      "file": "checkpoints/rlmr_v2_q_table.json",
+      "source_file": "mar_inference/rlmr_v2_q_table.json",
+      "sha256": "985f1699c1c990b0b712e40e69f3831abf4c3a1db3c5b57d30ff94e5db0d12b4",
+      "size_bytes": 98688,
+      "episodes": 200,
+      "td_updates": 60994,
+      "state_count": 979
+    },
+    "v2_1": {
+      "file": "checkpoints/rlmr_v2_1_q_table.json",
+      "source_file": "mar_inference/rlmr_v2_1_q_table.json",
+      "sha256": "bb5f5919ec5d001083a300e9d8397b4388d4827f4a5233fb8278adf018978a54",
+      "size_bytes": 103774,
+      "episodes": 200,
+      "td_updates": 62376,
+      "state_count": 1046
+    }
+  },
+  "v2_1_training": {
+    "algorithm": "tabular_td_q_learning",
+    "map_set": "corridor",
+    "map_indices": "0-49",
+    "message_loss_probabilities": [0.1, 0.2, 0.3, 0.5],
+    "episodes_per_loss": 50,
+    "total_episodes": 200,
+    "message_loss_seed_base": 0,
+    "retransmission_loss_seed_base": 100000
+  },
+  "v2_1_parameters": {
+    "retransmission_cost": 0.01,
+    "map_success_reward": 0.25,
+    "map_expire_penalty": -0.35,
+    "astar_pair_penalty": -8.0,
+    "map_shield_min_age": 5,
+    "map_shield_min_staleness": 10
+  },
+  "heldout_protocol": {
+    "map_set": "corridor",
+    "map_indices": "200-299",
+    "message_loss_probabilities": [0.1, 0.2, 0.3, 0.5],
+    "attempts_per_setting": 100,
+    "simulation_seed_base": 7000,
+    "message_loss_seeds": [5000, 5001, 5002, 5003],
+    "retransmission_loss_seeds": [6000, 6001, 6002, 6003],
+    "policies": ["off", "priority", "rlmr_v2", "rlmr_v2_1"]
+  },
+  "heldout_results": {
+    "robust_success_percent": {
+      "off": [75.0, 63.0, 53.0, 22.0],
+      "priority": [74.0, 71.0, 65.0, 34.0],
+      "rlmr_v2": [86.0, 62.0, 55.0, 30.0],
+      "rlmr_v2_1": [78.0, 69.0, 55.0, 35.0]
+    },
+    "overall_robust_success_percent": {
+      "off": 53.25,
+      "priority": 61.0,
+      "rlmr_v2": 58.25,
+      "rlmr_v2_1": 59.25
+    },
+    "mean_retransmission_attempts_per_attempted_episode": {
+      "priority": [238.49, 420.97, 470.99, 386.4],
+      "rlmr_v2": [165.91, 235.07, 261.75, 265.57],
+      "rlmr_v2_1": [133.38, 182.79, 164.45, 224.14]
+    },
+    "overall_mean_retransmission_attempts_per_attempted_episode": {
+      "priority": 379.2125,
+      "rlmr_v2": 232.075,
+      "rlmr_v2_1": 176.19
+    },
+    "skipped_episodes": {
+      "off": 167,
+      "priority": 145,
+      "rlmr_v2": 153,
+      "rlmr_v2_1": 150
+    }
+  },
+  "statistical_summary": {
+    "v2_1_minus_v2_success_percentage_points": 1.0,
+    "v2_1_vs_v2_mcnemar_exploratory_p": 0.8102758773,
+    "v2_1_minus_v2_cluster_bootstrap_success_95ci_percentage_points": [-4.75, 6.75],
+    "v2_1_minus_v2_retransmissions_per_episode": -55.885,
+    "v2_1_minus_v2_cluster_bootstrap_retransmission_95ci": [-89.44, -21.3575],
+    "v2_1_vs_priority_success_percentage_points": -1.75,
+    "v2_1_vs_priority_retransmission_reduction_percent": 53.5
+  },
+  "known_limitations": [
+    "This is the first held-out communication seed only; additional seeds are required.",
+    "Skipped CSV rows currently report zero retransmission counters, so attempted-episode communication means underestimate traffic before skipped failures.",
+    "All skipped episodes in this run were rendezvous_astar_path_none failures.",
+    "RLMR-v2.1 reduced success by 8 percentage points versus V2 at message loss 0.1."
+  ],
+  "conclusion": "RLMR-v2.1 maintained success comparable to Priority while reducing recorded retransmission attempts by 53.5%. Compared with V2, it increased overall robust success by 1 point and reduced recorded retransmissions by 24.1%; the success difference was not statistically significant in this seed."
+}

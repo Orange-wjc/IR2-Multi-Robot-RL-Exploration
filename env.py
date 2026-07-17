@@ -21,6 +21,7 @@ from graph_generator import *
 from node import *
 from ss_realistic_model import SS_realistic_model
 from rlmr_policy import TabularRLMRPolicy
+from rlmr_policy_v2 import TabularRLMRPolicyV2
 
 
 
@@ -91,7 +92,13 @@ class Env():
         self.rlmr_step_actions = {}
         self.rlmr_action_counts = {"none": 0, "map": 0, "graph": 0, "pose": 0}
         self.rlmr_decision_count = 0
-        if RETRANSMISSION_POLICY.lower() == "rlmr":
+        self.rlmr_policy_version = "off"
+        self.rlmr_training = False
+        self.rlmr_forced_map_actions = 0
+        retransmission_policy = RETRANSMISSION_POLICY.lower()
+        if retransmission_policy == "rlmr":
+            self.rlmr_policy_version = "v1"
+            self.rlmr_training = RLMR_TRAIN
             self.rlmr_policy = TabularRLMRPolicy(
                 RLMR_Q_TABLE_PATH,
                 train=RLMR_TRAIN,
@@ -99,6 +106,36 @@ class Env():
                 epsilon=RLMR_EPSILON,
                 seed=RLMR_SEED + map_index,
                 initial_q=RLMR_INITIAL_Q,
+            )
+        elif retransmission_policy == "rlmr_v2":
+            rlmr_v2_profile = RLMR_V2_PROFILE.lower()
+            if rlmr_v2_profile not in ("v2", "v2_1"):
+                raise ValueError(f"Unsupported RLMR_V2_PROFILE: {RLMR_V2_PROFILE}")
+            self.rlmr_policy_version = rlmr_v2_profile
+            self.rlmr_training = RLMR_V2_TRAIN
+            self.rlmr_v2_retrans_cost = RLMR_V2_RETRANS_COST
+            self.rlmr_v2_map_success_reward = RLMR_V2_MAP_SUCCESS_REWARD
+            self.rlmr_v2_map_expire_penalty = RLMR_V2_MAP_EXPIRE_PENALTY
+            self.rlmr_v2_astar_pair_penalty = RLMR_V2_ASTAR_PAIR_PENALTY
+            self.rlmr_v2_map_shield_min_age = RLMR_V2_MAP_SHIELD_MIN_AGE
+            self.rlmr_v2_map_shield_min_staleness = RLMR_V2_MAP_SHIELD_MIN_STALENESS
+            q_table_path = RLMR_V2_Q_TABLE_PATH
+            if rlmr_v2_profile == "v2_1":
+                q_table_path = RLMR_V2_1_Q_TABLE_PATH
+                self.rlmr_v2_retrans_cost = RLMR_V2_1_RETRANS_COST
+                self.rlmr_v2_map_success_reward = RLMR_V2_1_MAP_SUCCESS_REWARD
+                self.rlmr_v2_map_expire_penalty = RLMR_V2_1_MAP_EXPIRE_PENALTY
+                self.rlmr_v2_astar_pair_penalty = RLMR_V2_1_ASTAR_PAIR_PENALTY
+                self.rlmr_v2_map_shield_min_age = RLMR_V2_1_MAP_SHIELD_MIN_AGE
+                self.rlmr_v2_map_shield_min_staleness = RLMR_V2_1_MAP_SHIELD_MIN_STALENESS
+            self.rlmr_policy = TabularRLMRPolicyV2(
+                q_table_path,
+                train=RLMR_V2_TRAIN,
+                alpha=RLMR_V2_ALPHA,
+                gamma=RLMR_V2_GAMMA,
+                epsilon=RLMR_V2_EPSILON,
+                seed=RLMR_V2_SEED + map_index,
+                initial_q=RLMR_V2_INITIAL_Q,
             )
         self.pose_staleness_sum = 0.0
         self.pose_staleness_count = 0
@@ -463,7 +500,12 @@ class Env():
             self.record_pose_staleness(sim_step)
         self.agents_connected_percentage = 1 - (len(self.agents_comms_broken) / self.n_agent)
         self.connectivity_rate = (len(self.agents_comms_broken) == 0)
+        previous_explored_rate = self.explored_rate
         self.explored_rate = self.evaluate_team_exploration_rate()
+        if self.rlmr_policy_version in ("v2", "v2_1"):
+            explored_delta = max(0.0, self.explored_rate - previous_explored_rate)
+            reward = RLMR_V2_EXPLORATION_REWARD * explored_delta - RLMR_V2_STEP_COST
+            self.rlmr_policy.add_global_reward(reward)
 
         team_reward = 0
         done = self.check_done()
@@ -547,6 +589,13 @@ class Env():
         if sim_step - pending["created_step"] <= MAX_MESSAGE_AGE and pending["retry_count"] < MAX_RETRY_COUNT:
             return False
         self.retransmission_expired[message_type] += 1
+        if self.rlmr_policy_version in ("v2", "v2_1"):
+            expire_penalties = {
+                "map": self.rlmr_v2_map_expire_penalty,
+                "graph": RLMR_V2_GRAPH_EXPIRE_PENALTY,
+                "pose": RLMR_V2_POSE_EXPIRE_PENALTY,
+            }
+            self.rlmr_policy.add_reward((receiver_id, sender_id), expire_penalties[message_type])
         self.clear_pending_retransmission(receiver_id, sender_id, message_type)
         return True
 
@@ -660,6 +709,73 @@ class Env():
             self.bucket_pose_staleness(),
         )
 
+    def bucket_v2_rate(self, value):
+        if value < 0.1:
+            return 0
+        if value < 0.2:
+            return 1
+        if value < 0.35:
+            return 2
+        return 3
+
+    def bucket_v2_age(self, value, present):
+        if not present:
+            return 0
+        if value < 3:
+            return 1
+        if value < 8:
+            return 2
+        return 3
+
+    def bucket_v2_staleness(self, value):
+        if value < 3:
+            return 0
+        if value < 8:
+            return 1
+        if value < self.rlmr_v2_map_shield_min_staleness:
+            return 2
+        return 3
+
+    def rlmr_v2_map_staleness(self, receiver_id, sender_id, sim_step):
+        updated_step = self.all_robot_belief_step_updated[receiver_id][sender_id]
+        return max(0, sim_step - updated_step)
+
+    def rlmr_v2_map_critical(self, receiver_id, sender_id, sim_step):
+        map_pending = self.pending_retransmissions[receiver_id][sender_id]["map"]
+        if map_pending is None:
+            return False
+        map_age = max(0, sim_step - map_pending["created_step"])
+        map_staleness = self.rlmr_v2_map_staleness(receiver_id, sender_id, sim_step)
+        pose_known = self.all_robot_positions_belief[receiver_id][sender_id] is not None
+        return pose_known and (
+            map_age >= self.rlmr_v2_map_shield_min_age
+            or map_staleness >= self.rlmr_v2_map_shield_min_staleness
+        )
+
+    def rlmr_v2_state(self, receiver_id, sender_id, sim_step):
+        message_types = ("map", "graph", "pose")
+        pending = [
+            self.pending_retransmissions[receiver_id][sender_id][message_type]
+            for message_type in message_types
+        ]
+        pending_mask = sum((1 << index) for index, item in enumerate(pending) if item is not None)
+        pending_ages = [
+            0 if item is None else max(0, sim_step - item["created_step"])
+            for item in pending
+        ]
+        map_staleness = self.rlmr_v2_map_staleness(receiver_id, sender_id, sim_step)
+        return (
+            self.bucket_v2_rate(self.observed_message_loss_rate()),
+            pending_mask,
+            self.bucket_v2_age(pending_ages[0], pending[0] is not None),
+            self.bucket_v2_age(pending_ages[1], pending[1] is not None),
+            self.bucket_v2_age(pending_ages[2], pending[2] is not None),
+            self.bucket_v2_staleness(map_staleness),
+            self.bucket_step_phase(sim_step),
+            self.bucket_explored_rate(),
+            int(self.rlmr_v2_map_critical(receiver_id, sender_id, sim_step)),
+        )
+
     def get_rlmr_action(self, receiver_id, sender_id, sim_step):
         key = (receiver_id, sender_id, sim_step)
         if key in self.rlmr_step_actions:
@@ -671,10 +787,22 @@ class Env():
             if self.pending_retransmissions[receiver_id][sender_id][message_type] is not None:
                 valid_actions.append(message_type)
 
-        state = self.rlmr_state(receiver_id, sender_id, sim_step)
-        action = self.rlmr_policy.select_action(state, valid_actions)
-        reward = -RLMR_RETRANS_COST if action != "none" else 0.0
-        transition_index = self.rlmr_policy.record_decision(state, action, reward=reward)
+        transition_index = None
+        if self.rlmr_policy_version in ("v2", "v2_1"):
+            state = self.rlmr_v2_state(receiver_id, sender_id, sim_step)
+            if RLMR_V2_MAP_SHIELD and self.rlmr_v2_map_critical(receiver_id, sender_id, sim_step):
+                valid_actions = ["map"]
+                self.rlmr_forced_map_actions += 1
+            action = self.rlmr_policy.select_action(
+                (receiver_id, sender_id),
+                state,
+                valid_actions,
+            )
+        else:
+            state = self.rlmr_state(receiver_id, sender_id, sim_step)
+            action = self.rlmr_policy.select_action(state, valid_actions)
+            reward = -RLMR_RETRANS_COST if action != "none" else 0.0
+            transition_index = self.rlmr_policy.record_decision(state, action, reward=reward)
         self.rlmr_step_actions[key] = {
             "action": action,
             "transition_index": transition_index,
@@ -684,12 +812,16 @@ class Env():
         return action
 
     def add_rlmr_reward(self, receiver_id, sender_id, sim_step, reward):
-        if self.rlmr_policy is None:
+        if self.rlmr_policy is None or self.rlmr_policy_version != "v1":
             return
         info = self.rlmr_step_actions.get((receiver_id, sender_id, sim_step))
         if info is None:
             return
         self.rlmr_policy.add_reward(info["transition_index"], reward)
+
+    def add_rlmr_v2_reward(self, receiver_id, sender_id, reward):
+        if self.rlmr_policy_version in ("v2", "v2_1"):
+            self.rlmr_policy.add_reward((receiver_id, sender_id), reward)
 
     def can_attempt_retransmission(self, receiver_id, sender_id):
         budget = max(0, RETRANSMISSION_BUDGET_PER_PAIR)
@@ -710,7 +842,7 @@ class Env():
         pending = self.pending_retransmissions[receiver_id][sender_id][message_type]
         if pending is None:
             return False
-        if RETRANSMISSION_POLICY.lower() == "rlmr":
+        if RETRANSMISSION_POLICY.lower() in ("rlmr", "rlmr_v2"):
             action = self.get_rlmr_action(receiver_id, sender_id, sim_step)
             if action != message_type:
                 return False
@@ -723,16 +855,28 @@ class Env():
 
         self.mark_retransmission_budget_used(receiver_id, sender_id)
         self.retransmission_attempts[message_type] += 1
+        is_rlmr_v2 = self.rlmr_policy_version in ("v2", "v2_1")
+        if is_rlmr_v2:
+            self.add_rlmr_v2_reward(receiver_id, sender_id, -self.rlmr_v2_retrans_cost)
         if self.retransmission_loss_rng.random() < self.get_message_loss_prob(message_type):
             self.retransmission_dropped[message_type] += 1
             pending["retry_count"] += 1
             self.add_rlmr_reward(receiver_id, sender_id, sim_step, RLMR_RETRANS_FAIL_PENALTY)
+            if is_rlmr_v2:
+                self.add_rlmr_v2_reward(receiver_id, sender_id, RLMR_V2_RETRANS_FAIL_PENALTY)
             self.expire_pending_retransmission(receiver_id, sender_id, message_type, sim_step)
             return False
 
         delay = max(0, sim_step - pending["created_step"])
         self.retransmission_successes[message_type] += 1
         self.add_rlmr_reward(receiver_id, sender_id, sim_step, RLMR_RETRANS_SUCCESS_REWARD)
+        if is_rlmr_v2:
+            success_rewards = {
+                "map": self.rlmr_v2_map_success_reward,
+                "graph": RLMR_V2_GRAPH_SUCCESS_REWARD,
+                "pose": RLMR_V2_POSE_SUCCESS_REWARD,
+            }
+            self.add_rlmr_v2_reward(receiver_id, sender_id, success_rewards[message_type])
         self.retransmission_delay_sum += delay
         self.retransmission_delay_count += 1
         self.retransmission_delay_max = max(self.retransmission_delay_max, delay)
@@ -760,8 +904,22 @@ class Env():
                 delivery[receiver_id][sender_id] = delivered
         return delivery
 
-    def finalize_rlmr_episode(self, success, skipped, steps):
+    def finalize_rlmr_episode(self, success, skipped, steps, failed_pair=None):
         if self.rlmr_policy is None:
+            return
+        if self.rlmr_policy_version in ("v2", "v2_1"):
+            if skipped:
+                terminal_reward = RLMR_V2_SKIP_PENALTY
+            elif success:
+                terminal_reward = RLMR_V2_SUCCESS_REWARD
+            else:
+                terminal_reward = RLMR_V2_FAIL_PENALTY
+            targeted_rewards = {}
+            if skipped and failed_pair is not None:
+                targeted_rewards[tuple(failed_pair)] = self.rlmr_v2_astar_pair_penalty
+            self.rlmr_policy.finish_episode(terminal_reward, targeted_rewards)
+            if RLMR_V2_TRAIN:
+                self.rlmr_policy.save()
             return
         if skipped:
             terminal_reward = RLMR_SKIP_PENALTY

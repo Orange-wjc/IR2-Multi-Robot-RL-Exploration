@@ -80,7 +80,23 @@ class TestWorker:
         self.skip_info.setdefault('rlmr_decisions', self.env.rlmr_decision_count)
         for action in ("none", "map", "graph", "pose"):
             self.skip_info.setdefault(f'rlmr_action_{action}', self.env.rlmr_action_counts[action])
+        for name, value in self.rlmr_policy_metrics().items():
+            self.skip_info.setdefault(name, value)
         self.perf_metrics['skip_info'] = self.skip_info
+
+    def rlmr_policy_metrics(self):
+        policy = self.env.rlmr_policy
+        mean_abs_td_error = policy.mean_abs_td_error() if hasattr(policy, 'mean_abs_td_error') else 0.0
+        unseen_states = policy.unseen_state_count() if hasattr(policy, 'unseen_state_count') else 0
+        return {
+            'rlmr_version': self.env.rlmr_policy_version,
+            'rlmr_train': self.env.rlmr_training,
+            'rlmr_q_states': policy.num_states() if policy is not None else 0,
+            'rlmr_td_updates': getattr(policy, 'episode_td_updates', 0),
+            'rlmr_mean_abs_td_error': mean_abs_td_error,
+            'rlmr_forced_map_actions': self.env.rlmr_forced_map_actions,
+            'rlmr_unseen_states': unseen_states,
+        }
 
     def run_episode(self, curr_episode):
         """ Run simulation episode for multiple robots """
@@ -163,7 +179,17 @@ class TestWorker:
                 break
 
         if astar_unsuccessful:
-            self.env.finalize_rlmr_episode(success=False, skipped=True, steps=step + 1)
+            failed_pair = None
+            if self.skip_info.get('skip_reason') == 'rendezvous_astar_path_none':
+                target_robot_id = self.skip_info.get('target_robot_id')
+                if target_robot_id not in ('', None):
+                    failed_pair = (int(self.skip_info['robot_id']), int(target_robot_id))
+            self.env.finalize_rlmr_episode(
+                success=False,
+                skipped=True,
+                steps=step + 1,
+                failed_pair=failed_pair,
+            )
             self.finalize_skip_metrics()
             return False
 
@@ -201,9 +227,9 @@ class TestWorker:
         self.perf_metrics['retrans_delay_max'] = self.env.retransmission_delay_max
         self.perf_metrics['pending_retransmissions'] = self.env.pending_message_count()
         self.perf_metrics['rlmr_decisions'] = self.env.rlmr_decision_count
-        self.perf_metrics['rlmr_q_states'] = self.env.rlmr_policy.num_states() if self.env.rlmr_policy is not None else 0
         for action in ("none", "map", "graph", "pose"):
             self.perf_metrics[f'rlmr_action_{action}'] = self.env.rlmr_action_counts[action]
+        self.perf_metrics.update(self.rlmr_policy_metrics())
         self.perf_metrics['pose_staleness_mean'] = self.env.pose_staleness_sum / self.env.pose_staleness_count if self.env.pose_staleness_count > 0 else 0.0
         self.perf_metrics['pose_staleness_max'] = self.env.pose_staleness_max
         self.perf_metrics['travel_steps'] = step + 1

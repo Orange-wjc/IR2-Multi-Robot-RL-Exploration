@@ -45,11 +45,21 @@ def write_test_parameters(
     retransmission,
     episodes,
     map_offset,
+    simulation_seed,
+    rlmr_v2_map_shield,
+    rlmr_v2_profile,
+    meta_agents,
+    v1_q_table,
+    v2_q_table,
+    v2_1_q_table,
 ):
     text = original_text
     text = replace_assignment(text, "TEST_SET_NAME", repr(map_name))
     text = replace_assignment(text, "TEST_MAP_OFFSET", repr(int(map_offset)))
+    text = replace_assignment(text, "TEST_RANDOM_SEED", repr(int(simulation_seed)))
     text = replace_assignment(text, "NUM_TEST", repr(int(episodes)))
+    if meta_agents is not None:
+        text = replace_assignment(text, "NUM_META_AGENT", repr(int(meta_agents)))
     text = replace_assignment(text, "ENABLE_PACKET_LOSS", "False")
     text = replace_assignment(text, "PACKET_LOSS_PROB", repr(0.0))
     text = replace_assignment(text, "PACKET_LOSS_SEED", repr(0))
@@ -60,6 +70,12 @@ def write_test_parameters(
     text = replace_assignment(text, "RETRANSMISSION_LOSS_SEED", repr(int(retransmission_seed)))
     text = replace_assignment(text, "ENABLE_PRIORITY_RETRANSMISSION", str(retransmission != "off"))
     text = replace_assignment(text, "RLMR_TRAIN", "False")
+    text = replace_assignment(text, "RLMR_V2_TRAIN", "False")
+    text = replace_assignment(text, "RLMR_V2_MAP_SHIELD", str(rlmr_v2_map_shield))
+    text = replace_assignment(text, "RLMR_V2_PROFILE", repr(rlmr_v2_profile))
+    text = replace_assignment(text, "RLMR_Q_TABLE_PATH", repr(v1_q_table))
+    text = replace_assignment(text, "RLMR_V2_Q_TABLE_PATH", repr(v2_q_table))
+    text = replace_assignment(text, "RLMR_V2_1_Q_TABLE_PATH", repr(v2_1_q_table))
     if retransmission != "off":
         text = replace_assignment(text, "RETRANSMISSION_POLICY", repr(retransmission))
     PARAM_PATH.write_text(text, encoding="utf-8")
@@ -77,8 +93,24 @@ def latest_new_csv(start_time, old_files, pattern):
     return max(candidates, key=lambda p: p.stat().st_mtime)
 
 
-def run_one(map_name, mode, loss, seed, retransmission_seed, retransmission, map_offset, output_tag, overwrite):
-    retrans_suffix = "" if retransmission == "off" else f"_{retransmission}_retrans"
+def run_one(
+    map_name,
+    mode,
+    loss,
+    seed,
+    retransmission_seed,
+    retransmission,
+    map_offset,
+    simulation_seed,
+    output_tag,
+    rlmr_v2_map_shield,
+    rlmr_v2_profile,
+    overwrite,
+):
+    output_policy = "rlmr_v2_1" if retransmission == "rlmr_v2" and rlmr_v2_profile == "v2_1" else retransmission
+    retrans_suffix = "" if retransmission == "off" else f"_{output_policy}_retrans"
+    if retransmission == "rlmr_v2" and not rlmr_v2_map_shield:
+        retrans_suffix += "_no_shield"
     tag_suffix = f"_{output_tag}" if output_tag else ""
     target = LOG_DIR / f"{map_name}_msg_{mode}_{loss_suffix(loss)}{retrans_suffix}{tag_suffix}.csv"
     skipped_target = LOG_DIR / f"{map_name}_msg_{mode}_{loss_suffix(loss)}{retrans_suffix}{tag_suffix}_skipped.csv"
@@ -93,9 +125,12 @@ def run_one(map_name, mode, loss, seed, retransmission_seed, retransmission, map
 
     print("=" * 80, flush=True)
     print(
-        f"Running map={map_name}, map_offset={map_offset}, message_mode={mode}, "
+        f"Running map={map_name}, map_offset={map_offset}, simulation_seed={simulation_seed}, "
+        f"message_mode={mode}, "
         f"message_loss={loss:.1f}, message_seed={seed}, retransmission={retransmission}, "
-        f"retransmission_seed={retransmission_seed}, output={target.name}",
+        f"retransmission_seed={retransmission_seed}, profile={rlmr_v2_profile}, "
+        f"map_shield={rlmr_v2_map_shield}, "
+        f"output={target.name}",
         flush=True,
     )
     print("=" * 80, flush=True)
@@ -169,6 +204,12 @@ def parse_args():
         help="Start map index for each setting. Default: 0.",
     )
     parser.add_argument(
+        "--simulation-seed",
+        type=int,
+        default=0,
+        help="Base seed for episode-level Python, NumPy, and PyTorch randomness.",
+    )
+    parser.add_argument(
         "--output-tag",
         default="",
         help="Optional suffix for output files, for example heldout_seed1000.",
@@ -181,9 +222,20 @@ def parse_args():
     parser.add_argument(
         "--retransmission",
         default="off",
-        choices=["off", "priority", "equal", "adaptive", "rlmr"],
+        choices=["off", "priority", "equal", "adaptive", "rlmr", "rlmr_v2"],
         help="Enable pending-message retransmission. Default: off.",
     )
+    parser.add_argument(
+        "--no-map-shield",
+        action="store_true",
+        help="Disable the RLMR-v2 critical-map safety constraint.",
+    )
+    parser.add_argument("--rlmr-v2-profile", choices=["v2", "v2_1"], default="v2")
+    parser.add_argument("--meta-agents", type=int, default=None,
+                        help="Override Ray worker count; omit to keep test_parameter.py unchanged.")
+    parser.add_argument("--v1-q-table", default="mar_inference/rlmr_q_table.json")
+    parser.add_argument("--v2-q-table", default="mar_inference/rlmr_v2_q_table.json")
+    parser.add_argument("--v2-1-q-table", default="mar_inference/rlmr_v2_1_q_table.json")
     return parser.parse_args()
 
 
@@ -193,6 +245,8 @@ def main():
         raise ValueError("--episodes must be positive")
     if args.map_offset < 0:
         raise ValueError("--map-offset must be non-negative")
+    if args.meta_agents is not None and args.meta_agents <= 0:
+        raise ValueError("--meta-agents must be positive")
     if args.output_tag and not re.fullmatch(r"[A-Za-z0-9_-]+", args.output_tag):
         raise ValueError("--output-tag may contain only letters, numbers, underscores, and hyphens")
     original_text = PARAM_PATH.read_text(encoding="utf-8")
@@ -214,6 +268,13 @@ def main():
                         args.retransmission,
                         args.episodes,
                         args.map_offset,
+                        args.simulation_seed,
+                        not args.no_map_shield,
+                        args.rlmr_v2_profile,
+                        args.meta_agents,
+                        args.v1_q_table,
+                        args.v2_q_table,
+                        args.v2_1_q_table,
                     )
                     run_one(
                         map_name,
@@ -223,7 +284,10 @@ def main():
                         retransmission_seed,
                         args.retransmission,
                         args.map_offset,
+                        args.simulation_seed,
                         args.output_tag,
+                        not args.no_map_shield,
+                        args.rlmr_v2_profile,
                         args.overwrite,
                     )
                     run_index += 1
